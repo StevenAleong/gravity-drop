@@ -1,0 +1,21 @@
+{
+  "name": "gravity-drop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "fairness": "tsx scripts/fairness.ts"
+  },
+  "dependencies": {
+    "@dimforge/rapier2d-compat": "^0.21.0",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "~5.9",
+    "vite": "^7.3.7"
+  }
+}

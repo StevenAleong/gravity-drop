@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0c1a" />
+  <meta name="description" content="A gamified marble-race name picker. Drop the names in, physics picks the winner." />
+  <title>Gravity Drop</title>
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='%23ff3d8b'/%3E%3Ccircle cx='24' cy='23' r='8' fill='%23fff' opacity='.6'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <div id="stage"></div>
+
+  <div id="hud" class="hidden">
+    <div id="topbar">
+      <button id="btn-exit" class="icon" title="Back to setup (Esc)" aria-label="Back to setup">←</button>
+      <div id="race-info"></div>
+      <div class="spacer"></div>
+      <button id="btn-results" class="hidden" title="Show the winner again">🏆 Results</button>
+      <button id="btn-follow" title="Camera follows the leader" class="active">🎥 Leader</button>
+      <button id="btn-mute" class="icon" title="Sound (M)" aria-label="Toggle sound">🔊</button>
+      <button id="btn-full" class="icon" title="Fullscreen (F)" aria-label="Toggle fullscreen">⛶</button>
+    </div>
+    <div id="minimap">
+      <div id="mm-track"></div>
+    </div>
+    <aside id="board">
+      <div class="board-head"><span>STANDINGS</span><span id="board-hint">click to follow</span></div>
+      <div id="board-rows"></div>
+    </aside>
+    <div id="banner"></div>
+    <div id="ticker"></div>
+    <div id="countdown"></div>
+  </div>
+
+  <div id="setup">
+    <div class="setup-card">
+      <h1>GRAVITY<span>DROP</span></h1>
+      <p class="tagline">Drop the names in. Physics picks the winner.</p>
+
+      <label class="label" for="names">Names <span id="name-count"></span></label>
+      <textarea id="names" spellcheck="false" placeholder="One name per line, or comma separated"></textarea>
+
+      <div class="lists">
+        <select id="saved" aria-label="Saved lists"></select>
+        <button id="btn-save" class="ghost">Save list</button>
+        <button id="btn-del" class="ghost" title="Delete selected list">✕</button>
+      </div>
+
+      <div class="settings">
+        <div class="field">
+          <div class="field-head">
+            <span class="label">Race length</span>
+            <label class="seg-count" title="Random sections before the final drop (1 to 15)">
+              <input id="seg-count" type="number" min="1" max="15" step="1" inputmode="numeric" />
+              segments + finale
+            </label>
+          </div>
+          <div class="seg" data-key="length">
+            <button data-v="short">Short</button>
+            <button data-v="medium">Medium</button>
+            <button data-v="epic">Epic</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Winner</span>
+          <div class="seg" data-key="mode">
+            <button data-v="first">First to finish</button>
+            <button data-v="last">Last one standing</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Final drop</span>
+          <div class="seg" data-key="finale">
+            <button data-v="random" title="A different finale each race">🎲 Random</button>
+            <button data-v="pinball" title="Bumper field and slingshots">Pinball</button>
+            <button data-v="mayhem" title="A long finale packed with obstacles">Mayhem</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Funnels</span>
+          <div class="seg" data-key="funnels">
+            <button data-v="on" title="Every section squeezes into a guarded chokepoint in the middle">🌪 On</button>
+            <button data-v="off">Off</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-guide" class="ghost guide-btn">📖 Section guide <span>see what's on the course</span></button>
+
+      <button id="btn-drop" class="drop">DROP!</button>
+      <p class="hint">Space to drop · Esc to come back</p>
+
+      <div id="history"></div>
+    </div>
+  </div>
+
+  <dialog id="history-modal" class="modal" aria-labelledby="history-title">
+    <div class="modal-head">
+      <h2 id="history-title">All winners</h2>
+      <button id="btn-history-close" class="icon ghost" aria-label="Close">✕</button>
+    </div>
+    <ol id="history-all" class="history-list"></ol>
+    <div id="history-foot" class="modal-foot">
+      <button id="btn-history-clear" class="danger">Clear all winners</button>
+    </div>
+    <div id="history-confirm" class="modal-foot confirm hidden">
+      <span id="history-confirm-text"></span>
+      <div class="confirm-actions">
+        <button id="btn-clear-no" class="ghost">Cancel</button>
+        <button id="btn-clear-yes" class="danger solid">Yes, clear</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="sections-modal" class="modal sections-modal" aria-labelledby="sections-title">
+    <div class="modal-head">
+      <h2 id="sections-title">Section guide</h2>
+      <button id="btn-sections-close" class="icon ghost" aria-label="Close">✕</button>
+    </div>
+    <div id="sections-list" class="sections-list"></div>
+  </dialog>
+
+  <div id="preview" class="hidden">
+    <button id="btn-preview-back" class="ghost small">← Section guide</button>
+    <span id="preview-kind" class="label"></span>
+    <div class="preview-nav">
+      <button id="btn-sec-prev" class="icon" aria-label="Previous section">‹</button>
+      <h2 id="preview-name"></h2>
+      <button id="btn-sec-next" class="icon" aria-label="Next section">›</button>
+    </div>
+    <p id="preview-about"></p>
+    <p id="preview-hint" class="hint"></p>
+  </div>
+
+  <div id="winner" class="hidden">
+    <div class="win-card">
+      <div id="win-label">WINNER</div>
+      <div id="win-name"></div>
+      <div id="win-stats"></div>
+      <div class="win-actions">
+        <button id="btn-again" class="drop">Race again</button>
+        <button id="btn-remove">Remove &amp; race again</button>
+        <button id="btn-replay" class="ghost">Replay this race</button>
+        <button id="btn-edit" class="ghost">Edit names</button>
+        <button id="btn-watch" class="ghost">👀 Continue watching</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+
+</html>
