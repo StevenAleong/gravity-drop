@@ -14,7 +14,7 @@ const GROUPS: { kind: SectionKind; title: string; label: string; blurb: string }
 const ABOUT: Record<string, string> = {
   'segment:pegs': 'Twelve staggered rows of plain pegs. No tricks, just a long, clicky fall where every bounce can reshuffle the order.',
   'segment:trapdoors':
-    'Three floors of swinging trapdoors, each split finer than the last. Marbles pile up and drop through in batches, so whoever sits on the next door to open jumps ahead.',
+    'Two floors of hatches that take turns: the top floor drops its batch onto the bottom one, which opens as the top closes again. Marbles go through in batches, so whoever just makes a hatch jumps ahead.',
   'segment:sliders': 'Rows of small shelves that slide side to side and tilt as they go. Land on one and get carried along, then tipped off somewhere new.',
   'segment:trampolines': 'Six rows of springy pads, most of them slowly rocking, so every bounce fires a marble off at a different angle.',
   'segment:pendulums':

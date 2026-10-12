@@ -313,6 +313,16 @@ button.small {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.history-list li.replayable {
+  cursor: pointer;
+}
+
+.history-list li.replayable:hover,
+.history-list li.replayable:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+
 .history-list li span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;

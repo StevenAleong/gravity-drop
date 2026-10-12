@@ -407,11 +407,12 @@ export class Renderer {
 
   // ---- per-frame ------------------------------------------------------------
 
-  update(dt: number, target: Marble | null, zoomTarget: number, leaderIdx: number, followIdx: number | null) {
+  /** `focus` lists marbles the camera must keep in view (the close pair in a photo finish). */
+  update(dt: number, target: Marble | null, zoomTarget: number, leaderIdx: number, followIdx: number | null, focus: Marble[] = []) {
     const sim = this.sim;
     if (!sim) return;
     this.time += dt;
-    this.updateCamera(dt, sim, target, zoomTarget);
+    this.updateCamera(dt, sim, target, zoomTarget, focus);
 
     const s = this.scale;
     const yTop = -this.world.y / s - 2;
@@ -450,13 +451,30 @@ export class Renderer {
     this.confetti.update(dt);
   }
 
-  private updateCamera(dt: number, sim: Sim, target: Marble | null, zoomTarget: number) {
+  private updateCamera(dt: number, sim: Sim, target: Marble | null, zoomTarget: number, focus: Marble[]) {
     const scr = this.app.screen;
     const { left, right, top, bottom } = this.insets;
     const viewW = Math.max(100, scr.width - left - right);
     const viewH = Math.max(100, scr.height - top - bottom);
     if (this.preview) return this.previewCamera(dt, sim, this.preview, left, top, viewW, viewH);
     const base = Math.min(viewW / (W + 1.0), viewH / 11);
+    const anchor = 0.42;
+
+    // Zoom in only as far as keeps every focus marble on screen (with a margin): the camera sits on the
+    // pair's midpoint across, and on the target down, so the trailing marble above it must fit in the
+    // part of the view above the anchor.
+    let fx = target?.x ?? W / 2;
+    if (target && focus.length > 1) {
+      const xs = focus.map((m) => m.x);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      fx = (minX + maxX) / 2;
+      const margin = 1.6;
+      const fitX = viewW / (maxX - minX + margin * 2) / base;
+      const above = Math.max(0, ...focus.map((m) => target.y - m.y));
+      const fitY = (viewH * anchor) / (above + margin) / base;
+      zoomTarget = Math.max(1, Math.min(zoomTarget, fitX, fitY));
+    }
 
     this.zoom += (zoomTarget - this.zoom) * (1 - Math.exp(-dt * 3));
     const s = base * this.zoom;
@@ -464,12 +482,11 @@ export class Renderer {
 
     const ty = target ? target.y : sim.gateY - 1;
     this.camY += (ty - this.camY) * (1 - Math.exp(-dt * 5));
-    const anchor = 0.42;
     const maxCam = sim.bottomY + 0.5 - (viewH * (1 - anchor)) / s;
     const minCam = sim.topY + (viewH * anchor) / s;
     const camY = Math.max(minCam, Math.min(maxCam, this.camY));
 
-    const tx = target && this.zoom > 1.02 ? target.x : W / 2;
+    const tx = target && this.zoom > 1.02 ? fx : W / 2;
     this.camX += (tx - this.camX) * (1 - Math.exp(-dt * 4));
     const half = viewW / 2 / s;
     const camX = half * 2 >= W + 1 ? W / 2 : Math.max(half - 0.5, Math.min(W + 0.5 - half, this.camX));

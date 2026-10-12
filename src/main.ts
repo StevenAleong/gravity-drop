@@ -34,19 +34,27 @@ async function boot() {
   const renderer = new Renderer(app);
   const sfx = new Sfx();
   const hud = new Hud((idx) => setFollow(followIdx === idx ? null : idx));
-  const setup = new Setup(() => startRace(freshOptions()), () => scheduleDemo());
+  const setup = new Setup(
+    () => startRace(freshOptions()),
+    () => scheduleDemo(),
+    (race) => startRace(race, true),
+  );
   const guide = new SectionGuide((i) => showSection(i), () => leavePreview());
 
   type Screen = 'setup' | 'race' | 'winner' | 'preview';
   let screen: Screen = 'setup';
   let sim: Sim | null = null;
   let lastOpts: SimOptions | null = null;
+  /** The current race is a replay, so its winner is already in the history. */
+  let replaying = false;
   let acc = 0;
   let timeScale = 1;
   let followIdx: number | null = null;
   let winnerAt = 0;
   /** Slow motion stays on until this time (ms), so it lingers just past the finish line. */
   let dramaUntil = 0;
+  /** The two marbles in the close finish, which the slow-motion camera keeps in view. */
+  let dramaPair: Marble[] = [];
   /** The player closed the winner card to keep watching the rest of the field. */
   let watching = false;
   let lastLeadBanner = 0;
@@ -76,6 +84,7 @@ async function boot() {
     acc = 0;
     timeScale = 1;
     dramaUntil = 0;
+    dramaPair = [];
     watching = false;
     allDoneAt = 0;
     resultsBtn.classList.add('hidden');
@@ -140,11 +149,12 @@ async function boot() {
   window.addEventListener('pointerup', () => (dragY = null));
   window.addEventListener('pointercancel', () => (dragY = null));
 
-  function startRace(opts: SimOptions) {
+  function startRace(opts: SimOptions, replay = false) {
     if (opts.names.length < 2) return;
     sfx.unlock();
     screen = 'race';
     lastOpts = opts;
+    replaying = replay;
     setup.hide();
     winnerEl.classList.add('hidden');
     hud.show();
@@ -198,7 +208,7 @@ async function boot() {
   resultsBtn.addEventListener('click', showWinner);
 
   $('btn-again').addEventListener('click', () => lastOpts && startRace({ ...lastOpts, names: setup.names(), seed: randomSeed() }));
-  $('btn-replay').addEventListener('click', () => lastOpts && startRace(lastOpts));
+  $('btn-replay').addEventListener('click', () => lastOpts && startRace(lastOpts, true));
   $('btn-edit').addEventListener('click', toSetup);
   $('btn-exit').addEventListener('click', toSetup);
   $('btn-remove').addEventListener('click', () => {
@@ -377,7 +387,7 @@ async function boot() {
         hud.showBanner(`🏆 ${m!.name} WINS!`, hex(m!.color), 2500);
         vibrate([60, 40, 140]);
         winnerAt = performance.now();
-        setup.recordWinner(m!.name, sim.marbles.length);
+        if (!replaying) setup.recordWinner(m!.name, sim.marbles.length, sim.opts);
         break;
     }
   }
@@ -402,18 +412,18 @@ async function boot() {
    * the old 5 m / 1.6 m test missed some photo finishes. Tested over 400 races: on in the last 0.4 s of all
    * 23 close (<0.3 s) finishes, for ~1.3 s of race time each and ~0.4 s per race overall.
    */
-  function isDramatic(s: Sim): boolean {
-    if (s.winner || s.phase !== 'racing') return false;
+  function isDramatic(s: Sim): Marble[] | null {
+    if (s.winner || s.phase !== 'racing') return null;
     const live = s.ranking.filter((m) => !m.finished);
     if (s.opts.mode === 'first') {
       const [a, b] = live;
-      if (!a || !b || s.finishY - a.y > 7) return false;
+      if (!a || !b || s.finishY - a.y > 7) return null;
       const gap = a.y - b.y;
-      return gap < 2.0 || gap / Math.max(1, b.body.linvel().y) < 0.3;
+      return gap < 2.0 || gap / Math.max(1, b.body.linvel().y) < 0.3 ? [a, b] : null;
     }
-    if (live.length !== 2) return false;
+    if (live.length !== 2) return null;
     const [a, b] = live;
-    return s.finishY - a.y < 7 && Math.abs(a.y - b.y) < 2.5;
+    return s.finishY - a.y < 7 && Math.abs(a.y - b.y) < 2.5 ? [a, b] : null;
   }
 
   app.ticker.add((ticker) => {
@@ -423,8 +433,13 @@ async function boot() {
 
     // Keep the slow motion going for a moment after the line is crossed, so the photo finish itself
     // plays slowly. Ease in fast (the finish is over in a blink) and back out gently.
-    if (racing && isDramatic(sim)) dramaUntil = performance.now() + 900;
+    const pair = racing ? isDramatic(sim) : null;
+    if (pair) {
+      dramaUntil = performance.now() + 900;
+      dramaPair = pair;
+    }
     const drama = racing && performance.now() < dramaUntil;
+    if (!drama) dramaPair = [];
     timeScale += ((drama ? 0.3 : 1) - timeScale) * Math.min(1, dt * (drama ? 10 : 3));
 
     acc += dt * timeScale;
@@ -448,7 +463,9 @@ async function boot() {
     // Hold the camera on the start mixer during the countdown rather than chasing a bouncing marble.
     const target = followIdx !== null ? sim.marbles[followIdx] : sim.phase === 'countdown' ? null : front;
     const crown = sim.phase === 'countdown' || screen === 'preview' ? -1 : (sim.winner?.idx ?? front?.idx ?? -1);
-    renderer.update(dt, target, drama ? 1.35 : 1, crown, followIdx);
+    // Only frame the pair while the camera is on one of them (not when following some other marble).
+    const focus = target && dramaPair.includes(target) ? dramaPair : [];
+    renderer.update(dt, target, drama ? 1.35 : 1, crown, followIdx, focus);
     // The hint can change the card's height (and so the space left for the section) on phones.
     if (screen === 'preview' && guide.setScrolls(renderer.previewScrolls)) layout();
     if (racing) hud.update(sim, followIdx, front);

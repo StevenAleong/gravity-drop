@@ -124,25 +124,25 @@ const TEMPLATES: Template[] = [
     h: 17.5,
     build(b, y0, rng) {
       pegRows(b, rng, y0 + 1.2, 2, 1.6, 2.0);
-      // Three floors of paired doors, each split finer than the last (4, 6, then 8 doors), so lower
-      // floors drop marbles in more, smaller batches. An open door's tip hangs ~L below its hinge, so
-      // each floor sits far enough under the one above that a swinging door never pinches a resting marble.
-      const floors = [
-        { dy: 5.5, cells: 2, period: [3.5, 6] },
-        { dy: 10.7, cells: 3, period: [3, 5] },
-        { dy: 14.5, cells: 4, period: [2.5, 4.5] },
-      ];
-      for (const { dy, cells, period } of floors) {
+      // Two floors of two cells, each cell a pair of doors that open together like a hatch. The floors
+      // take turns: the whole top floor drops its batch onto the closed bottom floor, which opens half a
+      // period later while the top refills. An open door's tip hangs ~3.9 m below its hinge, so the bottom
+      // floor sits far enough under the top one that a swinging door never pinches a resting marble.
+      const period = range(rng, 4, 5);
+      const open = range(rng, 1.2, 1.5);
+      const phase = rng() * period;
+      const cw = W / 2;
+      [5.5, 11].forEach((dy, f) => {
         const fy = y0 + dy;
-        const cw = W / cells;
-        for (let c = 0; c < cells; c++) {
+        const ph = phase - (f * period) / 2;
+        for (let c = 0; c < 2; c++) {
           const x0 = c * cw;
-          b.trapdoor(x0, fy, cw / 2, 1, range(rng, period[0], period[1]), range(rng, 1.1, 1.6), rng() * 6);
-          b.trapdoor(x0 + cw, fy, cw / 2, -1, range(rng, period[0], period[1]), range(rng, 1.1, 1.6), rng() * 6);
-          // A hump on each shared hinge, so nothing can sit on a pivot that never drops.
+          b.trapdoor(x0, fy, cw / 2, 1, period, open, ph);
+          b.trapdoor(x0 + cw, fy, cw / 2, -1, period, open, ph);
+          // A hump on the shared hinge, so nothing can sit on a pivot that never drops.
           if (c > 0) b.peg(x0, fy, 0.2);
         }
-      }
+      });
     },
   },
   {
@@ -203,7 +203,7 @@ const TEMPLATES: Template[] = [
       for (let r = 0; r < 6; r++) {
         const y = y0 + 2.8 + r * 2.6;
         for (const x of r % 2 ? [4.8, 8, 11.2] : [3.2, 6.4, 9.6, 12.8]) {
-          b.pendulum(x, y - rod, rod, 0.55, range(rng, 0.3, 0.42), range(rng, 1.8, 2.6), rng() * 6.3, range(rng, 2.5, 3.5));
+          b.pendulum(x, y - rod, rod, 0.55, range(rng, 0.3, 0.42), range(rng, 1.8, 2.6), rng() * 6.3, range(rng, 3.5, 5.5));
         }
         const [len, drop] = r % 2 ? [2.6, 0.8] : [1.0, 0.6];
         b.ledge('left', y - drop / 2, len, drop);
@@ -468,7 +468,7 @@ const FUNNEL_GUARDS: { id: string; name: string; build(b: Builder, ty: number, r
     // Just the funnel, nothing in the throat: the squeeze alone bunches the pack and jostles the order.
     id: 'plain',
     name: 'PLAIN',
-    build() {},
+    build() { },
   },
 ];
 

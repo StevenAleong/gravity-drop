@@ -1,5 +1,5 @@
 import { FINISHES, SEGMENT_COUNTS } from '../sim/course';
-import { segmentCount, type RaceLength, type WinMode } from '../sim/sim';
+import { segmentCount, type RaceLength, type SimOptions, type WinMode } from '../sim/sim';
 
 export interface Settings {
   /** Number of random segments; Short/Medium/Epic are presets (see SEGMENT_COUNTS). */
@@ -14,6 +14,10 @@ export interface HistoryEntry {
   name: string;
   of: number;
   at: number;
+  /** The race's options (names, seed, settings), so it can be replayed. Missing on entries saved before replays. */
+  race?: SimOptions;
+  /** `__SIM_VERSION__` when the race ran. A replay is only allowed while it still matches. */
+  v?: string;
 }
 
 const KEY = { names: 'gd.names', settings: 'gd.settings', lists: 'gd.lists', history: 'gd.history' };
@@ -72,7 +76,11 @@ export class Setup {
   private lists: Record<string, string> = load(KEY.lists, {});
   private history: HistoryEntry[] = load(KEY.history, []);
 
-  constructor(private onDrop: () => void, private onNamesChanged: () => void) {
+  constructor(
+    private onDrop: () => void,
+    private onNamesChanged: () => void,
+    private onReplay: (race: SimOptions) => void,
+  ) {
     // Older saves stored a preset name ('short' etc.); segmentCount maps those and clamps anything else.
     this.settings.length = segmentCount(this.settings.length as RaceLength | number);
     // Finales were removed (Pinball became a segment), so drop the old saved choice.
@@ -172,8 +180,10 @@ export class Setup {
     this.onNamesChanged();
   }
 
-  recordWinner(name: string, of: number) {
-    this.history.unshift({ name, of, at: Date.now() });
+  recordWinner(name: string, of: number, race: SimOptions) {
+    const { names, seed, length, mode, funnels, finish } = race;
+    const entry = { name, of, at: Date.now(), race: { names, seed, length, mode, funnels, finish }, v: __SIM_VERSION__ };
+    this.history.unshift(entry);
     this.history = this.history.slice(0, MAX_HISTORY);
     save(KEY.history, this.history);
     this.refreshHistory();
@@ -265,6 +275,28 @@ export class Setup {
       const b = document.createElement('span');
       b.textContent = `of ${e.of} · ${new Date(e.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
       li.append(a, b);
+      const race = e.race;
+      // The sim is deterministic, so the saved seed and settings play the same race again, but only on
+      // the same sim code: after any change the course or the physics could differ, so no replay.
+      if (!race || e.v !== __SIM_VERSION__) {
+        li.title = race ? 'The course has changed since this race, so it can no longer be replayed' : '';
+      } else {
+        li.classList.add('replayable');
+        li.tabIndex = 0;
+        li.title = 'Watch this race again';
+        a.textContent = `▶ ${e.name}`;
+        const replay = () => {
+          if (this.modal.open) this.modal.close();
+          this.onReplay(race);
+        };
+        li.addEventListener('click', replay);
+        li.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Enter' && ev.key !== ' ') return;
+          ev.preventDefault();
+          ev.stopPropagation(); // or the global Space/Enter hotkey starts a fresh race too
+          replay();
+        });
+      }
       ol.append(li);
     }
   }
