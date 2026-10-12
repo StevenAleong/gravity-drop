@@ -8,6 +8,7 @@ import { randomSeed } from './sim/rng';
 import { Sim, type Marble, type SimOptions } from './sim/sim';
 import type { SimEvent } from './sim/types';
 import { FINISHES, SECTIONS } from './sim/course';
+import { raceProps, track, type RaceSource } from './ui/analytics';
 import { segmentName } from './ui/course';
 import { Hud } from './ui/hud';
 import { SectionGuide } from './ui/sections';
@@ -38,9 +39,9 @@ async function boot() {
   const sfx = new Sfx();
   const hud = new Hud((idx) => setFollow(followIdx === idx ? null : idx));
   const setup = new Setup(
-    () => startRace(freshOptions()),
+    () => startRace(freshOptions(), 'drop'),
     () => scheduleDemo(),
-    (race) => startRace(race, true),
+    (race) => startRace(race, 'history'),
     () => scheduleDemo(),
     () => showCourse(),
   );
@@ -188,12 +189,13 @@ async function boot() {
   window.addEventListener('pointerup', () => (dragY = null));
   window.addEventListener('pointercancel', () => (dragY = null));
 
-  function startRace(opts: SimOptions, replay = false) {
+  function startRace(opts: SimOptions, source: RaceSource) {
     if (opts.names.length < 2) return;
     sfx.unlock();
     screen = 'race';
     lastOpts = opts;
-    replaying = replay;
+    replaying = source === 'replay' || source === 'history';
+    track('race_start', raceProps(opts, source));
     setup.hide();
     winnerEl.classList.add('hidden');
     hud.show();
@@ -243,21 +245,39 @@ async function boot() {
     resultsBtn.classList.remove('hidden');
   }
 
-  $('btn-watch').addEventListener('click', continueWatching);
+  // Which winner-card buttons people use (the race-starting ones also log race_start with that source).
+  const winnerAction = (action: string) => track('winner_action', { action });
+
+  $('btn-watch').addEventListener('click', () => {
+    winnerAction('watch');
+    continueWatching();
+  });
   resultsBtn.addEventListener('click', showWinner);
 
-  $('btn-again').addEventListener('click', () => lastOpts && startRace({ ...lastOpts, names: setup.names(), seed: randomSeed() }));
-  $('btn-replay').addEventListener('click', () => lastOpts && startRace(lastOpts, true));
-  $('btn-edit').addEventListener('click', toSetup);
+  $('btn-again').addEventListener('click', () => {
+    if (!lastOpts) return;
+    winnerAction('again');
+    startRace({ ...lastOpts, names: setup.names(), seed: randomSeed() }, 'again');
+  });
+  $('btn-replay').addEventListener('click', () => {
+    if (!lastOpts) return;
+    winnerAction('replay');
+    startRace(lastOpts, 'replay');
+  });
+  $('btn-edit').addEventListener('click', () => {
+    winnerAction('edit');
+    toSetup();
+  });
   $('btn-exit').addEventListener('click', toSetup);
   $('btn-remove').addEventListener('click', () => {
     if (!sim?.winner || !lastOpts) return;
+    winnerAction('remove');
     const names = setup.names();
     const i = names.indexOf(sim.winner.name);
     if (i >= 0) names.splice(i, 1);
     setup.setNames(names);
     if (names.length < 2) return toSetup();
-    startRace({ ...lastOpts, names, seed: randomSeed() });
+    startRace({ ...lastOpts, names, seed: randomSeed() }, 'remove');
   });
 
   function setFollow(idx: number | null) {
@@ -297,7 +317,7 @@ async function boot() {
     else if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
       if (screen === 'setup') {
-        if (setup.ready) startRace(freshOptions());
+        if (setup.ready) startRace(freshOptions(), 'drop');
       }
       else if (screen === 'winner') $('btn-again').click();
     }
@@ -429,6 +449,13 @@ async function boot() {
         vibrate([60, 40, 140]);
         winnerAt = performance.now();
         if (!replaying) setup.recordWinner(m!.name, sim.marbles.length, sim.opts);
+        track('race_complete', {
+          mode: sim.opts.mode,
+          time: Math.round(sim.opts.mode === 'first' ? m!.finishTime : sim.raceTime),
+          leadChanges: sim.leadChanges,
+          marbles: sim.marbles.length,
+          replay: replaying,
+        });
         break;
     }
   }

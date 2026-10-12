@@ -40,6 +40,14 @@ Sample result (600 races, 6 names): every name won 14.7–17.7% of races (an eve
 
 `vite.config.ts` uses a relative `base`, so it works under any repo name.
 
+## Analytics
+
+Usage is tracked with [Umami Cloud](https://cloud.umami.is): cookieless, so no consent banner is needed. The script tag in `index.html` has `data-domains="stevenaleong.github.io"`, so local dev and preview runs don't report (change it if the site moves to a custom domain). Besides page views, `src/ui/analytics.ts` sends three custom events. Names are never sent, only how many there are.
+
+- `race_start`: `source` (drop / again / remove / replay / history), `course` (random / custom), `segments`, `sections` (custom only), `mode`, `finish`, `funnels`, `names` (the count)
+- `race_complete`: `mode`, `time` (s), `leadChanges`, `marbles`, `replay`
+- `winner_action`: `action` (again / remove / replay / edit / watch)
+
 ## Project layout
 
 ```
