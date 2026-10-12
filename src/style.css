@@ -266,6 +266,134 @@ select option {
   color: var(--accent-2);
 }
 
+/* ---------- Custom course builder ---------- */
+
+.course-count {
+  font-size: 12px;
+  color: var(--accent-2);
+}
+
+.sub-label {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.course-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.course-list:empty {
+  display: none;
+}
+
+.course-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.course-list li.dragging {
+  border-color: var(--accent-2);
+  background: rgba(60, 240, 255, 0.12);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.course-list .grip {
+  flex: none;
+  width: 22px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--muted);
+  cursor: grab;
+  /* The grip drags the row, so a touch on it mustn't scroll the card. */
+  touch-action: none;
+  user-select: none;
+}
+
+.course-list li.dragging .grip {
+  cursor: grabbing;
+}
+
+.course-list .num {
+  flex: none;
+  width: 1.6em;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
+}
+
+.course-list .name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-list button.icon {
+  flex: none;
+  width: 28px;
+  padding: 4px 0;
+  font-size: 11px;
+  line-height: 1;
+  background: transparent;
+  border-color: transparent;
+}
+
+.course-list button.icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.course-list button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.course-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.course-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.course-add button {
+  font-size: 11px;
+  padding: 5px 8px;
+}
+
+.course-add button:disabled,
+.course-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.course-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.course-actions #btn-course-preview {
+  margin-left: auto;
+}
+
 .hint {
   margin: -2px 0 0;
   font-size: 12px;

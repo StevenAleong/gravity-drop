@@ -15,8 +15,9 @@ export function segmentCount(length: RaceLength | number): number {
   return Math.min(MAX_SEGMENTS, Math.max(MIN_SEGMENTS, Math.round(n) || SEGMENT_COUNTS.medium));
 }
 
-/** Most marbles a section preview has in play at once. */
+/** Most marbles a section preview has in play at once (a whole-course preview is much taller, so it gets more). */
 const PREVIEW_MAX = 24;
+const COURSE_PREVIEW_MAX = 48;
 /** Seconds a new leader must hold the lead before it's announced (`lead` event) and counted as a lead change. */
 const LEAD_HOLD = 1;
 
@@ -32,6 +33,10 @@ export interface SimOptions {
   finish?: string;
   /** Build just this one section, for a preview (pass no names): no gate, no countdown. */
   section?: { kind: SectionKind; id: string };
+  /** A custom course: segment template ids in order, replacing the random pick (`length` is then ignored). */
+  segments?: string[];
+  /** Preview the whole course (pass no names): no gate, mixer or countdown, marbles keep dropping in at the top. */
+  preview?: boolean;
 }
 
 export interface Marble {
@@ -95,6 +100,8 @@ export class Sim {
   readonly world: World;
   readonly rng: Rng;
   readonly opts: SimOptions;
+  /** A section or course preview: nameless marbles keep dropping in, and there's no race. */
+  private readonly previewing: boolean;
   private eq: EventQueue;
 
   t = 0;
@@ -140,6 +147,7 @@ export class Sim {
 
   constructor(opts: SimOptions) {
     this.opts = opts;
+    this.previewing = !!(opts.section || opts.preview);
     this.rng = mulberry32(opts.seed);
     this.world = new RAPIER.World({ x: 0, y: GRAVITY });
     this.world.timestep = DT;
@@ -149,7 +157,9 @@ export class Sim {
       buildSection(this, new Builder(this), this.rng, opts.section.kind, opts.section.id);
       this.phase = 'racing';
     } else {
-      buildCourse(this, new Builder(this), this.rng, segmentCount(opts.length), !!opts.funnels, opts.finish);
+      const { funnels, finish, segments, preview } = opts;
+      buildCourse(this, new Builder(this), this.rng, { count: segmentCount(opts.length), funnels, finish, segments, preview });
+      if (preview) this.phase = 'racing';
     }
     this.spawnMarbles();
     this.updateRanking();
@@ -247,7 +257,9 @@ export class Sim {
    * it crosses the line (it sits in the basin until then). Nothing here runs in a race.
    */
   private previewTick() {
-    if (this.t >= this.nextDrop && this.marbles.length < PREVIEW_MAX) {
+    // After the first step, when the world can be queried for open spots.
+    if (this.opts.preview && this.stepCount === 0) this.seedCoursePreview();
+    if (this.t >= this.nextDrop && this.marbles.length < (this.opts.preview ? COURSE_PREVIEW_MAX : PREVIEW_MAX)) {
       this.nextDrop = this.t + 0.3 + this.rng() * 0.4;
       const x = 0.8 + this.rng() * (W - 1.6);
       const y = this.topY + 0.3;
@@ -259,6 +271,21 @@ export class Sim {
     for (const m of this.marbles.slice()) {
       const gone = m.finished ? this.t - m.finishTime > 1.5 : m.y > this.bottomY + 1 || this.t - m.bestT > 45;
       if (gone) this.removeMarble(m);
+    }
+  }
+
+  /**
+   * A course preview pans down a long course, far ahead of the first marbles dropped in at the top, so it
+   * starts with a couple dropped in at the top of every section too.
+   */
+  private seedCoursePreview() {
+    for (const s of this.segments) {
+      for (let k = 0; k < 2; k++) {
+        const x = 0.8 + this.rng() * (W - 1.6);
+        const y = s.y0 + 0.3;
+        if (this.world.intersectionWithShape({ x, y }, 0, new RAPIER.Ball(MARBLE_R * 1.1))) continue;
+        this.createMarble(this.nextIdx++, '', x, y).body.setLinvel({ x: (this.rng() - 0.5) * 2, y: 1 }, true);
+      }
     }
   }
 
@@ -308,7 +335,7 @@ export class Sim {
       m.y = p.y;
       m.angle = m.body.rotation();
       if (!m.finished && !m.ghost && this.phase !== 'countdown' && m.y > this.finishY) {
-        if (this.opts.section) {
+        if (this.previewing) {
           // A preview has no race: just mark the marble so it's taken away in a moment.
           m.finished = true;
           m.finishTime = this.t;
@@ -319,7 +346,7 @@ export class Sim {
         finishedNow = true;
       }
     }
-    if (this.opts.section) this.previewTick();
+    if (this.previewing) this.previewTick();
 
     if (++this.stepCount % 6 === 0 || finishedNow) this.updateRanking();
   }
@@ -486,7 +513,7 @@ export class Sim {
       return b.y - a.y;
     });
     this.ranking.forEach((m, i) => (m.rank = i));
-    if (this.phase !== 'racing' || this.opts.section) return;
+    if (this.phase !== 'racing' || this.previewing) return;
 
     if (this.raceTime > 4) for (const m of this.marbles) m.worstRank = Math.max(m.worstRank, m.rank);
 

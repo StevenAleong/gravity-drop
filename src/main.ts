@@ -7,7 +7,8 @@ import { DT } from './sim/constants';
 import { randomSeed } from './sim/rng';
 import { Sim, type Marble, type SimOptions } from './sim/sim';
 import type { SimEvent } from './sim/types';
-import { SECTIONS } from './sim/course';
+import { FINISHES, SECTIONS } from './sim/course';
+import { segmentName } from './ui/course';
 import { Hud } from './ui/hud';
 import { SectionGuide } from './ui/sections';
 import { SAMPLE_NAMES, Setup } from './ui/setup';
@@ -15,6 +16,8 @@ import './style.css';
 
 const $ = (id: string) => document.getElementById(id)!;
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
+/** Auto-pan speed (m/s) of a whole-course preview: a course is 100-300 m tall, a section about 20. */
+const COURSE_PAN = 7;
 
 // Startup lives in a function rather than top-level await: Pixi lazy-loads chunks that import
 // back into this entry module, and a pending top-level await would deadlock them in production builds.
@@ -38,11 +41,15 @@ async function boot() {
     () => startRace(freshOptions()),
     () => scheduleDemo(),
     (race) => startRace(race, true),
+    () => scheduleDemo(),
+    () => showCourse(),
   );
   const guide = new SectionGuide((i) => showSection(i), () => leavePreview());
 
   type Screen = 'setup' | 'race' | 'winner' | 'preview';
   let screen: Screen = 'setup';
+  /** What the preview screen shows: one section from the guide, or the whole custom course. */
+  let previewKind: 'section' | 'course' = 'section';
   let sim: Sim | null = null;
   let lastOpts: SimOptions | null = null;
   /** The current race is a replay, so its winner is already in the history. */
@@ -72,8 +79,19 @@ async function boot() {
 
   function freshOptions(): SimOptions {
     const s = setup.settings;
-    const finish = s.finish === 'random' ? undefined : s.finish;
-    return { names: setup.names(), seed: randomSeed(), length: s.length, mode: s.mode, funnels: s.funnels, finish };
+    const segments = setup.customCourse ?? undefined;
+    return { names: setup.names(), seed: randomSeed(), length: segments?.length ?? s.length, mode: s.mode, funnels: s.funnels, finish: chosenFinish(), segments };
+  }
+
+  function chosenFinish() {
+    const f = setup.settings.finish;
+    return f === 'random' ? undefined : f;
+  }
+
+  /** Loads the custom course as a preview: no race, just marbles dropping in at the top nonstop. */
+  function loadCoursePreview(segments: string[]) {
+    load({ names: [], seed: randomSeed(), length: segments.length, mode: 'first', segments, funnels: setup.settings.funnels, finish: chosenFinish(), preview: true });
+    renderer.preview = { y: sim!.topY, auto: true, dir: 1, hold: 1.2, speed: COURSE_PAN };
   }
 
   function load(opts: SimOptions) {
@@ -94,6 +112,9 @@ async function boot() {
   }
 
   function startDemo() {
+    // With a custom course, the stage beside the card previews it as it's being built.
+    const course = setup.customCourse;
+    if (course?.length) return loadCoursePreview(course);
     const names = setup.names();
     load({ names: names.length >= 2 ? names : SAMPLE_NAMES, seed: randomSeed(), length: 'short', mode: 'first' });
   }
@@ -111,6 +132,7 @@ async function boot() {
   function showSection(i: number) {
     clearTimeout(demoTimer);
     screen = 'preview';
+    previewKind = 'section';
     setup.hide();
     document.body.classList.add('previewing');
     const { kind, id } = SECTIONS[i];
@@ -120,26 +142,43 @@ async function boot() {
     layout();
   }
 
-  /** Back from a preview to the setup screen, with the section guide open again. */
+  /** Shows the whole custom course full screen, with marbles dropping through it nonstop. */
+  function showCourse() {
+    const course = setup.customCourse;
+    if (!course?.length) return;
+    clearTimeout(demoTimer);
+    screen = 'preview';
+    previewKind = 'course';
+    setup.hide();
+    document.body.classList.add('previewing');
+    loadCoursePreview(course);
+    const finish = FINISHES.find((f) => f.id === setup.settings.finish)?.name ?? 'RANDOM';
+    guide.showCourse(course.map(segmentName), finish, setup.settings.funnels);
+    layout();
+  }
+
+  /** Back from a preview to the setup screen, with the section guide open again after a section preview. */
   function leavePreview() {
     if (screen !== 'preview') return;
+    const kind = previewKind;
     guide.hidePreview();
     document.body.classList.remove('previewing');
     toSetup();
-    guide.open();
+    if (kind === 'section') guide.open();
   }
 
-  // Wheel or drag to scroll a section that's taller than the view (this stops the auto-pan).
+  // Wheel or drag to scroll a preview that's taller than the view (this stops the auto-pan). That includes
+  // the custom course previewed beside the setup card.
   function scrollPreview(dy: number) {
     const p = renderer.preview;
-    if (screen !== 'preview' || !p || !renderer.previewScrolls) return;
+    if ((screen !== 'preview' && screen !== 'setup') || !p || !renderer.previewScrolls) return;
     p.auto = false;
     p.y += dy / renderer.scale;
   }
   app.canvas.addEventListener('wheel', (e) => scrollPreview(e.deltaY), { passive: true });
   let dragY: number | null = null;
   app.canvas.addEventListener('pointerdown', (e) => {
-    if (screen === 'preview') dragY = e.clientY;
+    if (screen === 'preview' || (screen === 'setup' && renderer.preview)) dragY = e.clientY;
   });
   window.addEventListener('pointermove', (e) => {
     if (dragY === null) return;
@@ -248,8 +287,8 @@ async function boot() {
         e.preventDefault();
         leavePreview();
       }
-      else if (e.key === 'ArrowLeft') guide.step(-1);
-      else if (e.key === 'ArrowRight') guide.step(1);
+      else if (previewKind === 'section' && e.key === 'ArrowLeft') guide.step(-1);
+      else if (previewKind === 'section' && e.key === 'ArrowRight') guide.step(1);
       return;
     }
     if (e.key === 'Escape') toSetup();
@@ -257,7 +296,9 @@ async function boot() {
     else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     else if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
-      if (screen === 'setup') startRace(freshOptions());
+      if (screen === 'setup') {
+        if (setup.ready) startRace(freshOptions());
+      }
       else if (screen === 'winner') $('btn-again').click();
     }
   });

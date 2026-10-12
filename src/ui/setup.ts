@@ -1,5 +1,7 @@
 import { FINISHES, SEGMENT_COUNTS } from '../sim/course';
 import { segmentCount, type RaceLength, type SimOptions, type WinMode } from '../sim/sim';
+import { cleanCourse, CourseBuilder, randomCourse } from './course';
+import { load, save } from './store';
 
 export interface Settings {
   /** Number of random segments; Short/Medium/Epic are presets (see SEGMENT_COUNTS). */
@@ -8,6 +10,10 @@ export interface Settings {
   funnels: boolean;
   /** Finish id, or 'random' to let the seed pick. */
   finish: string;
+  /** Random sections (`length` of them), or the player's own list (`custom`). */
+  course: 'random' | 'custom';
+  /** The custom course: section ids in order. Kept while Random is on, so switching back restores it. */
+  custom: string[];
 }
 
 export interface HistoryEntry {
@@ -27,23 +33,6 @@ const MAX_HISTORY = 100;
 const HISTORY_PREVIEW = 5;
 
 export const SAMPLE_NAMES = ['Ava', 'Ben', 'Chloe', 'Diego', 'Emma', 'Felix', 'Grace', 'Hiro'];
-
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* storage unavailable (private mode etc.) — settings just won't persist */
-  }
-}
 
 export function parseNames(text: string): string[] {
   return text
@@ -71,15 +60,24 @@ export class Setup {
     mode: 'first',
     funnels: false,
     finish: 'random',
+    course: 'random',
+    custom: [],
     ...load<Partial<Settings>>(KEY.settings, {}),
   };
   private lists: Record<string, string> = load(KEY.lists, {});
   private history: HistoryEntry[] = load(KEY.history, []);
+  private builder: CourseBuilder;
 
+  /**
+   * `onCourseChanged`: something that changes how the custom course looks (the list, Random/Custom, the
+   * finish or funnels), so its preview beside the card is rebuilt. `onPreviewCourse` opens it full screen.
+   */
   constructor(
     private onDrop: () => void,
     private onNamesChanged: () => void,
     private onReplay: (race: SimOptions) => void,
+    private onCourseChanged: () => void,
+    onPreviewCourse: () => void,
   ) {
     // Older saves stored a preset name ('short' etc.); segmentCount maps those and clamps anything else.
     this.settings.length = segmentCount(this.settings.length as RaceLength | number);
@@ -87,6 +85,18 @@ export class Setup {
     delete (this.settings as Partial<Settings> & { finale?: string }).finale;
     // A finish that no longer exists goes back to random.
     if (!FINISHES.some((f) => f.id === this.settings.finish)) this.settings.finish = 'random';
+    if (this.settings.course !== 'custom') this.settings.course = 'random';
+    this.settings.custom = cleanCourse(this.settings.custom);
+    this.builder = new CourseBuilder(
+      () => this.settings.custom,
+      (ids) => {
+        this.settings.custom = ids;
+        save(KEY.settings, this.settings);
+        this.refreshCount();
+        this.onCourseChanged();
+      },
+      onPreviewCourse,
+    );
     this.textarea.value = load<string>(KEY.names, SAMPLE_NAMES.join('\n'));
     this.textarea.addEventListener('input', () => {
       save(KEY.names, this.textarea.value);
@@ -103,9 +113,18 @@ export class Setup {
         if (key === 'funnels') this.settings.funnels = v === 'on';
         else if (key === 'length') this.settings.length = SEGMENT_COUNTS[v as RaceLength];
         else if (key === 'finish') this.settings.finish = v;
-        else this.settings.mode = v as WinMode;
+        else if (key === 'course') {
+          this.settings.course = v === 'custom' ? 'custom' : 'random';
+          // Start a first custom course from 5 random sections, so there's something to look at and tweak.
+          if (this.settings.course === 'custom' && !this.settings.custom.length) {
+            this.settings.custom = randomCourse(5);
+            this.builder.refresh();
+          }
+        } else this.settings.mode = v as WinMode;
         save(KEY.settings, this.settings);
         this.refreshSegs();
+        this.refreshCount();
+        if (key !== 'mode' && key !== 'length') this.onCourseChanged();
       });
     }
 
@@ -173,6 +192,16 @@ export class Setup {
     return parseNames(this.textarea.value);
   }
 
+  /** False while DROP! is disabled (too few names, or an empty custom course). */
+  get ready() {
+    return !this.dropBtn.disabled;
+  }
+
+  /** The custom course's section ids while Custom is on, else null (a random course). */
+  get customCourse(): string[] | null {
+    return this.settings.course === 'custom' ? this.settings.custom.slice() : null;
+  }
+
   setNames(names: string[]) {
     this.textarea.value = names.join('\n');
     save(KEY.names, this.textarea.value);
@@ -181,8 +210,8 @@ export class Setup {
   }
 
   recordWinner(name: string, of: number, race: SimOptions) {
-    const { names, seed, length, mode, funnels, finish } = race;
-    const entry = { name, of, at: Date.now(), race: { names, seed, length, mode, funnels, finish }, v: __SIM_VERSION__ };
+    const { names, seed, length, mode, funnels, finish, segments } = race;
+    const entry = { name, of, at: Date.now(), race: { names, seed, length, mode, funnels, finish, segments }, v: __SIM_VERSION__ };
     this.history.unshift(entry);
     this.history = this.history.slice(0, MAX_HISTORY);
     save(KEY.history, this.history);
@@ -205,13 +234,17 @@ export class Setup {
       }
     }
     if (syncInput) this.segCount.value = String(this.settings.length);
+    const custom = this.settings.course === 'custom';
+    $('length-field').classList.toggle('hidden', custom);
+    $('builder').classList.toggle('hidden', !custom);
   }
 
   private refreshCount() {
     const n = this.names().length;
     this.count.textContent = n === 1 ? '1 marble' : `${n} marbles`;
-    this.dropBtn.disabled = n < 2;
-    this.dropBtn.title = n < 2 ? 'Add at least two names' : '';
+    const noCourse = this.settings.course === 'custom' && !this.settings.custom.length;
+    this.dropBtn.disabled = n < 2 || noCourse;
+    this.dropBtn.title = n < 2 ? 'Add at least two names' : noCourse ? 'Add at least one section to your course' : '';
   }
 
   private refreshLists() {

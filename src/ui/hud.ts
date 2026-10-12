@@ -52,11 +52,12 @@ export class Hud {
     this.dots = [];
     this.rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-h')) || 30;
 
-    const { mode, length } = sim.opts;
+    const { mode, length, segments } = sim.opts;
     $('board').querySelector('.board-head span')!.textContent = mode === 'first' ? 'STANDINGS' : 'SAFEST FIRST';
     const n = segmentCount(length);
     const preset = (Object.keys(SEGMENT_COUNTS) as RaceLength[]).find((k) => SEGMENT_COUNTS[k] === n);
-    this.info.innerHTML = `<b>${mode === 'first' ? 'First to finish' : 'Last one standing'}</b> · ${preset ?? `${n} segments`}`;
+    const course = segments?.length ? `Custom · ${segments.length} segment${segments.length === 1 ? '' : 's'}` : (preset ?? `${n} segments`);
+    this.info.innerHTML = `<b>${mode === 'first' ? 'First to finish' : 'Last one standing'}</b> · ${course}`;
 
     for (const m of sim.marbles) {
       const el = document.createElement('div');

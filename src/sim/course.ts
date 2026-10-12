@@ -423,7 +423,7 @@ const TEMPLATES: Template[] = [
     h: FOOS_GOAL_TOP + FOOS_GOAL_DROP + FOOS_NET + 0.4,
     build(b, y0, rng) {
       FOOS_RODS.forEach(([count, team], r) => {
-        b.foosRod(y0 + 2.0 + r * FOOS_PITCH, count, FOOS_SPACING[count], team, range(rng, 1.8, 2.6), range(rng, 1.3, 2.1), rng() * 3, rng);
+        b.foosRod(y0 + 2.0 + r * FOOS_PITCH, count, FOOS_SPACING[count], team, range(rng, 1.8, 2.6), range(rng, 0.9, 1.4), rng() * 3, rng);
       });
       const top = y0 + FOOS_GOAL_TOP;
       const mouth = top + FOOS_GOAL_DROP;
@@ -697,18 +697,42 @@ export function buildSection(sim: Sim, b: Builder, rng: Rng, kind: SectionKind, 
   b.wall(W + 0.15, sim.topY, W + 0.15, h, 0.15);
 }
 
-/** Lays out start gate → random segments → finish (finish line and basin). */
-export function buildCourse(sim: Sim, b: Builder, rng: Rng, count: number, funnels = false, finishId?: string) {
-  const top = -14;
+export interface CourseOptions {
+  /** Random segments to pick (ignored when `segments` is given). */
+  count: number;
+  funnels?: boolean;
+  /** Finish id; omitted or unknown picks one from the seed. */
+  finish?: string;
+  /** A custom course: segment template ids in order (repeats allowed). Replaces the random pick. */
+  segments?: string[];
+  /** The setup screen's course preview: no start gate or mixer, marbles drop in at the top of the first segment. */
+  preview?: boolean;
+}
+
+/** Turns custom segment ids into templates, dropping unknown ids and clamping to MAX_SEGMENTS. */
+function customSegments(ids: string[]): Template[] {
+  return ids.flatMap((id) => TEMPLATES.filter((t) => t.id === id)).slice(0, MAX_SEGMENTS);
+}
+
+/** Lays out start gate → random (or custom) segments → finish (finish line and basin). */
+export function buildCourse(sim: Sim, b: Builder, rng: Rng, opts: CourseOptions) {
+  const { funnels = false, finish: finishId, preview = false } = opts;
+  let y = 7;
+  const custom = opts.segments?.length ? customSegments(opts.segments) : [];
+  let top = -14;
+  if (preview) {
+    // No gate or mixer: the course starts at the first segment.
+    top = sim.gateY = sim.mixerTop = y - 0.5;
+  } else {
+    // Start gate the marbles settle on during the countdown.
+    sim.gateY = 4;
+    sim.gate = b.wall(0, sim.gateY, W, sim.gateY, 0.15, 'gate');
+    pegRows(b, rng, 5.6, 1, 1, 1.6);
+  }
   sim.topY = top;
 
-  // Start gate the marbles settle on during the countdown.
-  sim.gateY = 4;
-  sim.gate = b.wall(0, sim.gateY, W, sim.gateY, 0.15, 'gate');
-  pegRows(b, rng, 5.6, 1, 1, 1.6);
-
-  let y = 7;
-  const picked = pickSegments(rng, count);
+  // A custom course draws nothing here, so a random course's rng draws (and each seed's layout) are unchanged.
+  const picked = custom.length ? custom : pickSegments(rng, opts.count);
   // Only draw from the rng when funnels are on, so existing seeds still build the same course without them.
   let guards: typeof FUNNEL_GUARDS = [];
   picked.forEach((tpl, i) => {
@@ -741,7 +765,7 @@ export function buildCourse(sim: Sim, b: Builder, rng: Rng, count: number, funne
   b.wall(W + 0.15, top, W + 0.15, y, 0.15);
 
   // Built last so the rng draws above (and so each seed's course layout) are unchanged.
-  mixer(sim, b, rng);
+  if (!preview) mixer(sim, b, rng);
 }
 
 /**

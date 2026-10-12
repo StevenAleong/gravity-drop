@@ -1,18 +1,19 @@
 /**
  * Debug helper: runs one seeded race headlessly and prints where every marble ended up.
- *   npx tsx scripts/inspect.ts <seed> [length=short|medium|epic|1-15] [names=6] [seconds=120] [funnels=0]
+ *   npx tsx scripts/inspect.ts <seed> [length=short|medium|epic|1-15] [names=6] [seconds=120] [funnels=0] [segments]
+ *   segments: a custom course, as comma-separated segment ids in order; `length` is then ignored.
  */
 import RAPIER from '@dimforge/rapier2d-compat';
 import { Sim, type RaceLength } from '../src/sim/sim';
 
-const [seedArg, lengthArg, namesArg, secsArg, funnelsArg] = process.argv.slice(2);
+const [seedArg, lengthArg, namesArg, secsArg, funnelsArg, segmentsArg] = process.argv.slice(2);
 const seed = Number(seedArg ?? 1);
 const n = Number(namesArg ?? 6);
 const secs = Number(secsArg ?? 120);
 await RAPIER.init();
 
 const names = Array.from({ length: n }, (_, i) => String.fromCharCode(65 + (i % 26)) + (i >= 26 ? i : ''));
-const sim = new Sim({ names, seed, length: !lengthArg ? 'short' : Number.isNaN(Number(lengthArg)) ? (lengthArg as RaceLength) : Number(lengthArg), mode: 'first', funnels: funnelsArg === '1' });
+const sim = new Sim({ names, seed, length: !lengthArg ? 'short' : Number.isNaN(Number(lengthArg)) ? (lengthArg as RaceLength) : Number(lengthArg), mode: 'first', funnels: funnelsArg === '1', segments: segmentsArg?.split(',') });
 console.log(`seed ${seed}:`, sim.segments.map((s) => `${s.name}@${s.y0.toFixed(0)}`).join(' | '), `finish ${sim.finishY}`);
 const counts: Record<string, number> = {};
 while (!sim.winner && sim.raceTime < secs) {

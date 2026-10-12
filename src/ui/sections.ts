@@ -57,6 +57,8 @@ export class SectionGuide {
   private card = $('preview');
   /** Index into SECTIONS of the section being previewed. */
   index = 0;
+  /** Showing the whole custom course rather than one section. */
+  private course = false;
 
   /** `onPreview` shows SECTIONS[i] on the stage; `onBack` leaves the preview. */
   constructor (private onPreview: (i: number) => void, private onBack: () => void) {
@@ -88,6 +90,7 @@ export class SectionGuide {
   /** Fills the preview card for SECTIONS[i] and shows it. `scrolls`: the section is taller than the view. */
   showPreview(i: number, scrolls: boolean) {
     this.index = i;
+    this.setCourseMode(false);
     const s = SECTIONS[i];
     $('preview-kind').textContent = `${GROUPS.find((g) => g.kind === s.kind)!.label} · ${ORDER.indexOf(i) + 1} of ${ORDER.length}`;
     $('preview-name').textContent = s.name;
@@ -97,9 +100,34 @@ export class SectionGuide {
     this.card.classList.remove('hidden');
   }
 
+  /** Fills the preview card for the whole custom course (section names in order) and shows it. */
+  showCourse(names: string[], finish: string, funnels: boolean) {
+    this.setCourseMode(true);
+    $('preview-kind').textContent = `Your course · ${names.length} section${names.length === 1 ? '' : 's'} + finish${funnels ? ' · funnels on' : ''}`;
+    $('preview-name').textContent = 'CUSTOM COURSE';
+    $('preview-about').textContent = [...names, `FINISH · ${finish}`].join(' → ');
+    this.setScrolls(false);
+    this.modal.close();
+    this.card.classList.remove('hidden');
+  }
+
+  /** A course preview has no prev/next, and its back button goes to the setup screen, not the guide. */
+  private setCourseMode(course: boolean) {
+    this.course = course;
+    $('btn-sec-prev').classList.toggle('hidden', course);
+    $('btn-sec-next').classList.toggle('hidden', course);
+    $('btn-preview-back').textContent = course ? '← Back to setup' : '← Section guide';
+  }
+
   /** Updates the hint for whether the section can be scrolled; returns true if it changed. */
   setScrolls(scrolls: boolean) {
-    const text = scrolls ? 'Scroll or drag to look around · ← → to browse' : '← → to browse · Esc to go back';
+    const text = this.course
+      ? scrolls
+        ? 'Scroll or drag to look around · Esc to go back'
+        : 'Esc to go back'
+      : scrolls
+        ? 'Scroll or drag to look around · ← → to browse'
+        : '← → to browse · Esc to go back';
     const el = $('preview-hint');
     if (el.textContent === text) return false;
     el.textContent = text;

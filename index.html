@@ -55,6 +55,13 @@
 
       <div class="settings">
         <div class="field">
+          <span class="label">Course</span>
+          <div class="seg" data-key="course">
+            <button data-v="random" title="A random set of sections each race">🎲 Random</button>
+            <button data-v="custom" title="Pick the sections and their order yourself">🛠 Custom</button>
+          </div>
+        </div>
+        <div class="field" id="length-field">
           <div class="field-head">
             <span class="label">Race length</span>
             <label class="seg-count" title="Random sections before the finish (1 to 15)">
@@ -66,6 +73,26 @@
             <button data-v="short">Short</button>
             <button data-v="medium">Medium</button>
             <button data-v="epic">Epic</button>
+          </div>
+        </div>
+        <div class="field hidden" id="builder">
+          <div class="field-head">
+            <span class="label">Your course</span>
+            <span id="course-count" class="course-count"></span>
+          </div>
+          <ol id="course-list" class="course-list"></ol>
+          <p id="course-empty" class="course-empty">Add sections below. They run top to bottom, then the finish.</p>
+          <span class="label sub-label">Add a section</span>
+          <div id="course-add" class="course-add"></div>
+          <div class="course-actions">
+            <button id="btn-course-shuffle" class="ghost small" title="Replace the course with 5 random sections">🎲 Random 5</button>
+            <button id="btn-course-clear" class="ghost small">Clear</button>
+            <button id="btn-course-preview" class="small" title="See the whole course with marbles dropping through it">👁 Preview course</button>
+          </div>
+          <div class="lists">
+            <select id="saved-course" aria-label="Saved courses"></select>
+            <button id="btn-course-save" class="ghost">Save course</button>
+            <button id="btn-course-del" class="ghost" title="Delete selected course">✕</button>
           </div>
         </div>
         <div class="field">

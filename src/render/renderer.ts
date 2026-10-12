@@ -40,6 +40,8 @@ export interface PreviewCam {
   dir: 1 | -1;
   /** Seconds left to pause at the top or bottom before panning back. */
   hold: number;
+  /** Auto-pan speed (m/s); defaults to PREVIEW_PAN. A whole course is far taller than a section, so it pans faster. */
+  speed?: number;
 }
 
 /** A preview shows at most this many metres of height before it scrolls (so pegs stay readable). */
@@ -575,7 +577,7 @@ export class Renderer {
       p.y = (sim.topY + sim.bottomY) / 2;
     } else {
       if (p.auto && (p.hold -= dt) <= 0) {
-        p.y += p.dir * PREVIEW_PAN * dt;
+        p.y += p.dir * (p.speed ?? PREVIEW_PAN) * dt;
         if ((p.dir > 0 && p.y >= hi) || (p.dir < 0 && p.y <= lo)) {
           p.dir = p.dir > 0 ? -1 : 1;
           p.hold = 1.5;
