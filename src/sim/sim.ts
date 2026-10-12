@@ -107,6 +107,8 @@ export class Sim {
   obstacles: Obstacle[] = [];
   zones: Zone[] = [];
   hinges: { x: number; y: number }[] = [];
+  /** Decorative goal nets (no colliders): a mouth from x1 to x2 at height y, hanging `depth` below it. */
+  nets: { x1: number; x2: number; y: number; depth: number }[] = [];
   segments: Segment[] = [];
   gate: Collider | null = null;
   gateY = 0;

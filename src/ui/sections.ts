@@ -28,6 +28,8 @@ const ABOUT: Record<string, string> = {
   'segment:glasstiles':
     'Four glass floors, each split into 1 to 4 tiles at random. A tile launches the first marble that lands on it and then shatters, so the first marble into each part of a floor loses time.',
   'segment:pinball': 'A pinball table: big pop bumpers that kick marbles away, then a funnel down to two flippers over a narrow drain, with slingshots in front of them. A lucky marble can slip down an outlane by the wall and skip the flippers.',
+  'segment:foosball':
+    'A foosball table: eight rods of black and yellow players that slide from wall to wall and kick. The feet bat marbles sideways, and while a rod is away from a wall, a lucky marble can slip straight down the side. At the bottom, everyone is funnelled into the goal.',
   'finish:funnel':
     'A funnel with slingshots on its walls and a flipper at the bottom of each one, down to the finish line.',
   'finish:halfpipe':

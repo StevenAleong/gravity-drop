@@ -1,7 +1,11 @@
 import type { Collider } from '@dimforge/rapier2d-compat';
 
 /** Capsules are aligned with the collider's local Y axis (Rapier convention). */
-export type Shape = { kind: 'capsule'; hh: number; r: number } | { kind: 'circle'; r: number };
+export type Shape =
+  | { kind: 'capsule'; hh: number; r: number }
+  | { kind: 'circle'; r: number }
+  /** A whole foosball player, drawn around its pivot on the rod. */
+  | { kind: 'foosman' };
 
 export type VisualStyle =
   | 'wall'
@@ -18,7 +22,9 @@ export type VisualStyle =
   | 'breakaway'
   | 'hinge'
   | 'rod'
-  | 'toggle';
+  | 'toggle'
+  | 'foosBlack'
+  | 'foosYellow';
 
 export interface Visual {
   id: number;

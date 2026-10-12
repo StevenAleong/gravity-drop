@@ -69,6 +69,41 @@ function chevron(g: Graphics, x: number, y: number, dx: number, dy: number, size
     .lineTo(x - dx * size - px * size, y - dy * size - py * size);
 }
 
+/**
+ * A foosball player drawn around its pivot on the rod (y down), like a real table's man: a domed cap and smiley
+ * face, a chest block with the rod hole and a flange each side, one leg with a slot, and a ridged block foot.
+ * It matches FOOS_PARTS in builder.ts. Outlined, so the black team shows up against the background.
+ */
+function foosman(g: Graphics, style: 'foosBlack' | 'foosYellow') {
+  const s = STYLE[style];
+  const detail = style === 'foosBlack' ? 0x4a4a58 : darken(s.fill, 0.7);
+  const line = { width: 0.035, color: s.edge, alpha: 0.7 };
+  const solid = (draw: () => void) => {
+    draw();
+    g.fill(s.fill).stroke(line);
+  };
+  // Soft glow behind the whole figure.
+  g.roundRect(-0.46, -0.86, 0.92, 2.46, 0.3).fill({ color: s.glow, alpha: 0.07 });
+  // Leg, with its slot, and the foot with grip ridges.
+  solid(() => g.roundRect(-0.17, 0.2, 0.34, 0.75, 0.17));
+  g.roundRect(-0.06, 0.34, 0.12, 0.44, 0.06).fill(detail);
+  solid(() => g.roundRect(-0.22, 0.89, 0.44, 0.64, 0.06));
+  for (let y = 1.02; y < 1.5; y += 0.07) g.moveTo(-0.17, y).lineTo(0.17, y).stroke({ width: 0.022, color: detail, alpha: 0.8 });
+  // Chest, flanges and the hole the rod runs through.
+  solid(() => g.roundRect(-0.31, -0.33, 0.62, 0.66, 0.16));
+  for (const x of [-0.38, 0.28]) solid(() => g.roundRect(x, -0.3, 0.1, 0.6, 0.04));
+  g.roundRect(-0.22, -0.24, 0.06, 0.36, 0.03).fill({ color: 0xffffff, alpha: 0.22 });
+  g.circle(0, 0, 0.055).fill(0x0a0c1a);
+  // Face, brim and domed cap.
+  solid(() => g.roundRect(-0.23, -0.56, 0.46, 0.32, 0.08));
+  g.circle(-0.08, -0.43, 0.025).fill(detail);
+  g.circle(0.08, -0.43, 0.025).fill(detail);
+  g.arc(0, -0.4, 0.09, 0.25 * Math.PI, 0.75 * Math.PI).stroke({ width: 0.025, color: detail });
+  solid(() => g.roundRect(-0.33, -0.6, 0.66, 0.09, 0.045));
+  solid(() => g.arc(0, -0.58, 0.27, Math.PI, 0).closePath());
+  g.ellipse(-0.1, -0.72, 0.08, 0.04).fill({ color: 0xffffff, alpha: 0.35 });
+}
+
 export class Renderer {
   readonly world = new Container();
   private overlay = new Container();
@@ -141,6 +176,7 @@ export class Renderer {
     for (const h of sim.hinges) {
       this.hingeG.circle(h.x, h.y, 0.2).fill(STYLE.hinge.fill).stroke({ width: 0.05, color: STYLE.hinge.edge, alpha: 0.7 });
     }
+    for (const n of sim.nets) this.drawNet(n);
     this.drawFinish(sim);
 
     for (const m of sim.marbles) this.addMarble(m);
@@ -209,6 +245,29 @@ export class Renderer {
     this.textLayer.addChild(t);
   }
 
+  /** A goal net seen from above: the goal line between the posts, and a mesh box tapering back behind it. */
+  private drawNet(n: Sim['nets'][number]) {
+    const g = this.staticG;
+    const inset = 0.35;
+    const bx1 = n.x1 + inset;
+    const bx2 = n.x2 - inset;
+    const by = n.y + n.depth;
+    const mesh = { width: 0.03, color: 0xffffff, alpha: 0.28 };
+    g.poly([n.x1, n.y, n.x2, n.y, bx2, by, bx1, by]).fill({ color: 0xffffff, alpha: 0.04 });
+    const cols = Math.round((n.x2 - n.x1) / 0.32);
+    for (let i = 1; i < cols; i++) {
+      const u = i / cols;
+      g.moveTo(n.x1 + u * (n.x2 - n.x1), n.y).lineTo(bx1 + u * (bx2 - bx1), by).stroke(mesh);
+    }
+    for (let y = n.y + 0.3; y < by; y += 0.3) {
+      const u = (y - n.y) / n.depth;
+      g.moveTo(n.x1 + u * inset, y).lineTo(n.x2 - u * inset, y).stroke(mesh);
+    }
+    const frame = { width: 0.06, color: 0xffffff, alpha: 0.6 };
+    g.moveTo(n.x1, n.y).lineTo(bx1, by).lineTo(bx2, by).lineTo(n.x2, n.y).stroke(frame);
+    g.moveTo(n.x1, n.y).lineTo(n.x2, n.y).stroke({ width: 0.05, color: 0xffffff, alpha: 0.85 });
+  }
+
   private addVisual(v: Visual) {
     const { collider, shape, style } = v;
     const p = collider.translation();
@@ -220,7 +279,7 @@ export class Renderer {
         const dx = -Math.sin(rot) * shape.hh;
         const dy = Math.cos(rot) * shape.hh;
         tube(g, p.x - dx, p.y - dy, p.x + dx, p.y + dy, shape.r, style);
-      } else {
+      } else if (shape.kind === 'circle') {
         const s = STYLE[style];
         g.circle(p.x, p.y, shape.r + 0.1).fill({ color: s.glow, alpha: 0.16 });
         g.circle(p.x, p.y, shape.r).fill(s.fill);
@@ -247,6 +306,8 @@ export class Renderer {
         }
         this.glass.set(v.id, { g, fade: -1 });
       }
+    } else if (shape.kind === 'foosman') {
+      foosman(g, style === 'foosBlack' ? 'foosBlack' : 'foosYellow');
     } else if (style === 'bumper') {
       const s = STYLE.bumper;
       g.circle(0, 0, shape.r + 0.18).fill({ color: s.glow, alpha: 0.18 });

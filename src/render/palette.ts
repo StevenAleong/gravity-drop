@@ -19,6 +19,8 @@ export const STYLE: Record<VisualStyle, { fill: number; edge: number; glow: numb
   hinge: { fill: 0x2a2f4a, edge: 0xffffff, glow: 0xffffff },
   rod: { fill: 0x8a93b8, edge: 0xe4e8ff, glow: 0xb8c2ff },
   toggle: { fill: 0x3dffd2, edge: 0xd0fff4, glow: 0x00ffc0 },
+  foosBlack: { fill: 0x1a1a20, edge: 0xc8ccdc, glow: 0xffffff },
+  foosYellow: { fill: 0xffd21a, edge: 0xfff6c0, glow: 0xffc400 },
 };
 
 export const FAN = 0x7fdbff;
