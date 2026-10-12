@@ -20,7 +20,7 @@ const ABOUT: Record<string, string> = {
   'segment:pendulums':
     'Six rows of swinging pendulums with bumper balls on the end. A ball that is swinging your way knocks you along with it, so the timing of every hit matters.',
   'segment:switches':
-    'A tree of flip-flop switches. Every marble that passes a switch flips it the other way, so the pack is dealt out across four lanes by arrival order: two glass floors that launch the first marble onto each, a peg zigzag, a windmill or a shelf zigzag.',
+    'Speed floors rush the pack down the top funnel into a tree of flip-flop switches. Every marble that passes a switch flips it the other way, so the pack is dealt out across four lanes by arrival order: two glass floors that launch the first marble onto each, a peg zigzag, a windmill or a shelf zigzag.',
   'segment:grinder':
     'The longest section: row after row of spinning windmills, with one big mill in the middle. Neighbours spin opposite ways and bat marbles sideways.',
   'segment:glass':

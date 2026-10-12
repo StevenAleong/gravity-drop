@@ -17,6 +17,8 @@ export function segmentCount(length: RaceLength | number): number {
 
 /** Most marbles a section preview has in play at once. */
 const PREVIEW_MAX = 24;
+/** Seconds a new leader must hold the lead before it's announced (`lead` event) and counted as a lead change. */
+const LEAD_HOLD = 1;
 
 export interface SimOptions {
   names: string[];
@@ -129,6 +131,9 @@ export class Sim {
   private lastCount = -1;
   /** Current leader (with hysteresis), first-to-finish mode only. */
   leader: Marble | null = null;
+  /** The last leader announced with a `lead` event; a new leader is announced once it has led for LEAD_HOLD s. */
+  private announcedLeader: Marble | null = null;
+  private leaderSince = 0;
   private leaderSegment = -1;
 
   constructor(opts: SimOptions) {
@@ -491,13 +496,22 @@ export class Sim {
       // Hysteresis so two marbles side by side don't flicker the lead.
       if (prev !== front && (!prev || prev.ghost || front.y - prev.y > 0.5)) {
         this.leader = front;
-        if (prev && this.raceTime > 2) {
+        this.leaderSince = this.raceTime;
+        if (!prev) this.announcedLeader = front;
+      }
+      // Only announce (and count) a new leader once it has held the lead for a full second, so a brief
+      // overtake that's undone straight away doesn't flash a banner.
+      const lead = this.leader;
+      if (lead && lead !== this.announcedLeader && this.raceTime - this.leaderSince >= LEAD_HOLD) {
+        const was = this.announcedLeader;
+        this.announcedLeader = lead;
+        if (was && this.leaderSince > 2) {
           this.leadChanges++;
-          this.emit({ type: 'lead', marble: front.idx, prev: prev.idx });
+          this.emit({ type: 'lead', marble: lead.idx, prev: was.idx });
           const n = this.marbles.length;
-          if (!front.comebackDone && n >= 4 && front.worstRank >= Math.max(3, Math.ceil(n * 0.6))) {
-            front.comebackDone = true;
-            this.emit({ type: 'comeback', marble: front.idx });
+          if (!lead.comebackDone && n >= 4 && lead.worstRank >= Math.max(3, Math.ceil(n * 0.6))) {
+            lead.comebackDone = true;
+            this.emit({ type: 'comeback', marble: lead.idx });
           }
         }
       }

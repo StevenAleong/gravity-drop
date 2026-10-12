@@ -102,6 +102,9 @@ function glassTiles(rng: Rng, rows: number): number[] {
   return tiles;
 }
 
+/** Switch Maze: speed of the express belts on the top funnel (m/s; rolling alone reaches about 9.5). */
+const SPEED_FLOOR = 13;
+
 /** Pinball: depth of the lower table (inlane guides, slingshots and flippers) below the playfield. */
 const PINBALL_LOW = 13.5;
 
@@ -231,6 +234,11 @@ const TEMPLATES: Template[] = [
         b.toggle(cx, Y(y + 1.5), half, tilt, sign(rng));
       };
       stage(8, 0, W, 0.6, 3.6);
+      // Speed floors (express belts, as in the old Factory) on the top funnel's walls, running down to the
+      // throat. They stop short of it so the belt never shoves marbles into the switch's pivot.
+      const express = { reverses: false, blend: 0.05 };
+      b.conveyor(0.3, Y(0.73), 6.3, Y(3.34), SPEED_FLOOR, 1, 0, express);
+      b.conveyor(W - 6.3, Y(3.34), W - 0.3, Y(0.73), -SPEED_FLOOR, 1, 0, express);
       stage(4, 0, 8, 6.1, 8.3);
       stage(12, 8, W, 6.1, 8.3);
 
