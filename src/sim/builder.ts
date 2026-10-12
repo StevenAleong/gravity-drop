@@ -1,8 +1,9 @@
 import RAPIER, { type Collider, type RigidBody } from '@dimforge/rapier2d-compat';
 import { NO_GROUPS, W } from './constants';
 import type { Sim } from './sim';
+import { mulberry32 } from './rng';
 import type { VisualStyle } from './types';
-import { BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, StamperZone, type BeltOpts, type Patrol } from './zones';
+import { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, type BeltOpts, type Patrol, type Track } from './zones';
 
 const HALF_PI = Math.PI / 2;
 
@@ -190,8 +191,11 @@ export class Builder {
     });
   }
 
-  /** Floor panel hinged at (hx, hy) extending side*len; swings down to dump marbles on a timer. */
-  trapdoor(hx: number, hy: number, len: number, side: number, period: number, openDur: number, phase: number) {
+  /**
+   * Floor panel hinged at (hx, hy) extending side*len; swings down to dump marbles on a timer. Open, it
+   * hangs `swing` radians below level (past π/2, its tip swings back out beyond the hinge).
+   */
+  trapdoor(hx: number, hy: number, len: number, side: number, period: number, openDur: number, phase: number, swing = 1.35) {
     const body = this.kinematic(hx, hy);
     this.arm(body, len, 0.14, side, 'trapdoor');
     let wasOpen = false;
@@ -201,7 +205,7 @@ export class Builder {
         const open = u < openDur ? Math.min(1, u / 0.2) * Math.min(1, (openDur - u) / 0.3) : 0;
         if (open > 0 && !wasOpen) this.sim.emit({ type: 'trapdoor', x: hx + (side * len) / 2, y: hy });
         wasOpen = open > 0;
-        body.setNextKinematicRotation(side * 1.35 * open);
+        body.setNextKinematicRotation(side * swing * open);
       },
     });
   }
@@ -240,6 +244,54 @@ export class Builder {
     this.sim.tag(c, { kind: 'spinner' });
     this.hinge(cx, cy);
     this.sim.obstacles.push({ update: (t) => body.setNextKinematicRotation(amp * Math.sin(w * t + phase)) });
+  }
+
+  /**
+   * Flip-flop diverter: a plate pivoted at its centre (cx, cy), tilted `tilt` radians down to one side
+   * so marbles landing on it roll off that way. Each marble that drops off the low end flips it to
+   * the other side, so marbles take turns going left and right (decided by arrival order, never by who).
+   */
+  toggle(cx: number, cy: number, half: number, tilt: number, startSide: number) {
+    let side = startSide;
+    let from = side * tilt;
+    let flipT = -1;
+    const swing = 0.16;
+    const body = this.kinematic(cx, cy, from);
+    const c = this.world.createCollider(
+      RAPIER.ColliderDesc.capsule(half, 0.15).setRotation(HALF_PI).setFriction(0.15).setRestitution(0.2),
+      body,
+    );
+    this.sim.addVisual(c, { kind: 'capsule', hh: half, r: 0.15 }, 'toggle', true);
+    this.sim.tag(c, { kind: 'spinner' });
+    this.hinge(cx, cy);
+    // A marble counts as through when it enters the band below the low tip on the open side. Only
+    // entering counts, so a slow marble still in the band can't flip it again when it swings back.
+    const tipX = half * Math.cos(tilt);
+    const tipY = cy + half * Math.sin(tilt);
+    const inBand = new Set<number>();
+    this.sim.obstacles.push({
+      update: (t) => {
+        let u = flipT < 0 ? 1 : Math.min(1, (t - flipT) / swing);
+        const e = u * u * (3 - 2 * u);
+        body.setNextKinematicRotation(from + (side * tilt - from) * e);
+        for (const m of this.sim.marbles) {
+          const dx = Math.abs(m.x - cx);
+          const inside = dx > tipX - 0.2 && dx < tipX + 1.6 && m.y > tipY + 0.2 && m.y < tipY + 1.4;
+          if (!inside) {
+            inBand.delete(m.idx);
+            continue;
+          }
+          if (inBand.has(m.idx)) continue;
+          inBand.add(m.idx);
+          if (u < 1 || (m.x - cx) * side < 0) continue;
+          from = side * tilt;
+          side = -side;
+          flipT = t;
+          u = 0;
+          this.sim.emit({ type: 'flip', x: cx, y: cy });
+        }
+      },
+    });
   }
 
   /** Decorative hub drawn over a pivot (no collider). */
@@ -302,6 +354,16 @@ export class Builder {
     this.sim.zones.push(new BoosterZone(x, y, w, h, vx, vy, cooldown));
   }
 
+  /** Slow-fall air (see SkyZone) over the rectangle; the renderer streams speed lines through it. */
+  sky(x: number, y: number, w: number, h: number, terminal: number, ease: number, gust: number, phase: number, drag: number) {
+    this.sim.zones.push(new SkyZone(x, y, w, h, terminal, ease, gust, phase, drag));
+  }
+
+  /** Downward boost pads that stream up through the rectangle (see RiserZone), spawned from their own seeded rng. */
+  risers(x: number, y: number, w: number, h: number, padW: number, padH: number, rise: number, vy: number, gap: [number, number], cooldown: number, seed: number) {
+    this.sim.zones.push(new RiserZone(x, y, w, h, padW, padH, rise, vy, gap, cooldown, mulberry32(seed)));
+  }
+
   portal(
     ax: number,
     ay: number,
@@ -313,5 +375,10 @@ export class Builder {
     exitPatrol?: Patrol,
   ) {
     this.sim.zones.push(new PortalZone(patrol ? patrol.x0 : ax, ay, r, exitPatrol ? exitPatrol.x0 : bx, by, forward, patrol, exitPatrol));
+  }
+
+  /** Black hole at (x, y), or drifting along `track`; swallowed marbles come out at (bx, by). See BlackHoleZone. */
+  blackHole(x: number, y: number, r: number, pull: number, accel: number, swirl: number, bx: number, by: number, track?: Track) {
+    this.sim.zones.push(new BlackHoleZone(x, y, r, pull, accel, swirl, bx, by, track));
   }
 }

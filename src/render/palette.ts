@@ -18,6 +18,7 @@ export const STYLE: Record<VisualStyle, { fill: number; edge: number; glow: numb
   breakaway: { fill: 0xbfe9ff, edge: 0xffffff, glow: 0x6fd2ff },
   hinge: { fill: 0x2a2f4a, edge: 0xffffff, glow: 0xffffff },
   rod: { fill: 0x8a93b8, edge: 0xe4e8ff, glow: 0xb8c2ff },
+  toggle: { fill: 0x3dffd2, edge: 0xd0fff4, glow: 0x00ffc0 },
 };
 
 export const FAN = 0x7fdbff;
@@ -25,7 +26,9 @@ export const HELP = 0x5dff9a;
 export const HURT = 0xff5d6c;
 export const PORTAL_FWD = 0x3cf0ff;
 export const PORTAL_BACK = 0xff4fd8;
+export const BLACKHOLE = 0xff7a3d;
 export const LIFT = 0xffcf3d;
 export const BOOST = 0xfff36b;
 export const HAZARD = 0xffc21a;
 export const STEEL = 0x8a93b8;
+export const SKY = 0xbfe6ff;

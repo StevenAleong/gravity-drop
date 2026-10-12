@@ -15,16 +15,19 @@ export function segmentCount(length: RaceLength | number): number {
   return Math.min(MAX_SEGMENTS, Math.max(MIN_SEGMENTS, Math.round(n) || SEGMENT_COUNTS.medium));
 }
 
+/** Most marbles a section preview has in play at once. */
+const PREVIEW_MAX = 24;
+
 export interface SimOptions {
   names: string[];
   seed: number;
-  /** A preset name or a number of random segments (the finale comes on top). */
+  /** A preset name or a number of random segments (the finish comes on top). */
   length: RaceLength | number;
   mode: WinMode;
   /** Squeeze the course through a guarded funnel between every segment. */
   funnels?: boolean;
-  /** Finale id (see FINALES in course.ts); omitted or unknown picks one from the seed. */
-  finale?: string;
+  /** Finish id (see FINISHES in course.ts); omitted or unknown picks one from the seed. */
+  finish?: string;
   /** Build just this one section, for a preview (pass no names): no gate, no countdown. */
   section?: { kind: SectionKind; id: string };
 }
@@ -118,6 +121,10 @@ export class Sim {
   rescues = 0;
 
   private tags = new Map<number, Tag>();
+  /** Next marble idx; section previews keep adding marbles. */
+  private nextIdx = 0;
+  /** Sim time of a section preview's next marble drop. */
+  private nextDrop = 0;
   private stepCount = 0;
   private lastCount = -1;
   /** Current leader (with hysteresis), first-to-finish mode only. */
@@ -135,7 +142,7 @@ export class Sim {
       buildSection(this, new Builder(this), this.rng, opts.section.kind, opts.section.id);
       this.phase = 'racing';
     } else {
-      buildCourse(this, new Builder(this), this.rng, segmentCount(opts.length), !!opts.funnels, opts.finale);
+      buildCourse(this, new Builder(this), this.rng, segmentCount(opts.length), !!opts.funnels, opts.finish);
     }
     this.spawnMarbles();
     this.updateRanking();
@@ -175,47 +182,84 @@ export class Sim {
       // Odd rows are offset so stacked marbles nest instead of balancing.
       const x = Math.min(W - 0.42, 0.6 + (slot % cols) * spacing + (row % 2) * spacing * 0.5);
       const y = this.gateY - 0.5 - row * 0.72;
-      const body = this.world.createRigidBody(
-        RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(x + (this.rng() - 0.5) * 0.05, y)
-          .setCcdEnabled(true)
-          .setLinearDamping(0.05)
-          .setAngularDamping(0.2)
-          .setCanSleep(false),
-      );
-      const collider = this.world.createCollider(
-        RAPIER.ColliderDesc.ball(MARBLE_R)
-          .setRestitution(0.4)
-          .setFriction(0.15)
-          .setDensity(1)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-        body,
-      );
-      const m: Marble = {
-        idx,
-        name,
-        color: marbleColor(idx),
-        body,
-        collider,
-        x,
-        y,
-        angle: 0,
-        finished: false,
-        finishTime: 0,
-        place: 0,
-        rank: idx,
-        worstRank: 0,
-        comebackDone: false,
-        ghost: null,
-        cooldowns: new Map(),
-        still: 0,
-        segment: -1,
-        bestY: y,
-        bestT: 0,
-      };
-      this.marbles.push(m);
-      this.tag(collider, { kind: 'marble', m });
+      this.createMarble(idx, name, x, y, x + (this.rng() - 0.5) * 0.05);
     });
+    this.nextIdx = n;
+  }
+
+  /** Adds a marble at (bodyX, y); `x` is its recorded starting x. */
+  private createMarble(idx: number, name: string, x: number, y: number, bodyX = x): Marble {
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(bodyX, y)
+        .setCcdEnabled(true)
+        .setLinearDamping(0.05)
+        .setAngularDamping(0.2)
+        .setCanSleep(false),
+    );
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.ball(MARBLE_R)
+        .setRestitution(0.4)
+        .setFriction(0.15)
+        .setDensity(1)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+      body,
+    );
+    const m: Marble = {
+      idx,
+      name,
+      color: marbleColor(idx),
+      body,
+      collider,
+      x,
+      y,
+      angle: 0,
+      finished: false,
+      finishTime: 0,
+      place: 0,
+      rank: idx,
+      worstRank: 0,
+      comebackDone: false,
+      ghost: null,
+      cooldowns: new Map(),
+      still: 0,
+      segment: -1,
+      bestY: y,
+      bestT: this.t,
+    };
+    this.marbles.push(m);
+    this.tag(collider, { kind: 'marble', m });
+    return m;
+  }
+
+  // ---- section previews -------------------------------------------------------
+
+  /**
+   * A section preview keeps dropping nameless marbles in at random spots along the top, so you can see the
+   * section at work. A marble is taken away once it falls out of the bottom, or, in a finish, a moment after
+   * it crosses the line (it sits in the basin until then). Nothing here runs in a race.
+   */
+  private previewTick() {
+    if (this.t >= this.nextDrop && this.marbles.length < PREVIEW_MAX) {
+      this.nextDrop = this.t + 0.3 + this.rng() * 0.4;
+      const x = 0.8 + this.rng() * (W - 1.6);
+      const y = this.topY + 0.3;
+      if (!this.world.intersectionWithShape({ x, y }, 0, new RAPIER.Ball(MARBLE_R * 1.1))) {
+        const m = this.createMarble(this.nextIdx++, '', x, y);
+        m.body.setLinvel({ x: (this.rng() - 0.5) * 2, y: 1 }, true);
+      }
+    }
+    for (const m of this.marbles.slice()) {
+      const gone = m.finished ? this.t - m.finishTime > 1.5 : m.y > this.bottomY + 1 || this.t - m.bestT > 45;
+      if (gone) this.removeMarble(m);
+    }
+  }
+
+  private removeMarble(m: Marble) {
+    this.tags.delete(m.collider.handle);
+    this.world.removeRigidBody(m.body);
+    this.marbles.splice(this.marbles.indexOf(m), 1);
+    this.ranking = this.ranking.filter((r) => r !== m);
   }
 
   private release() {
@@ -257,10 +301,18 @@ export class Sim {
       m.y = p.y;
       m.angle = m.body.rotation();
       if (!m.finished && !m.ghost && this.phase !== 'countdown' && m.y > this.finishY) {
+        if (this.opts.section) {
+          // A preview has no race: just mark the marble so it's taken away in a moment.
+          m.finished = true;
+          m.finishTime = this.t;
+          this.emit({ type: 'finish', marble: m.idx, place: 0 });
+          continue;
+        }
         this.finish(m);
         finishedNow = true;
       }
     }
+    if (this.opts.section) this.previewTick();
 
     if (++this.stepCount % 6 === 0 || finishedNow) this.updateRanking();
   }
@@ -427,7 +479,7 @@ export class Sim {
       return b.y - a.y;
     });
     this.ranking.forEach((m, i) => (m.rank = i));
-    if (this.phase !== 'racing') return;
+    if (this.phase !== 'racing' || this.opts.section) return;
 
     if (this.raceTime > 4) for (const m of this.marbles) m.worstRank = Math.max(m.worstRank, m.rank);
 

@@ -57,9 +57,9 @@
         <div class="field">
           <div class="field-head">
             <span class="label">Race length</span>
-            <label class="seg-count" title="Random sections before the final drop (1 to 15)">
+            <label class="seg-count" title="Random sections before the finish (1 to 15)">
               <input id="seg-count" type="number" min="1" max="15" step="1" inputmode="numeric" />
-              segments + finale
+              segments + finish
             </label>
           </div>
           <div class="seg" data-key="length">
@@ -76,11 +76,12 @@
           </div>
         </div>
         <div class="field">
-          <span class="label">Final drop</span>
-          <div class="seg" data-key="finale">
-            <button data-v="random" title="A different finale each race">🎲 Random</button>
-            <button data-v="pinball" title="Bumper field and slingshots">Pinball</button>
-            <button data-v="mayhem" title="A long finale packed with obstacles">Mayhem</button>
+          <span class="label">Finish</span>
+          <div class="seg" data-key="finish">
+            <button data-v="random" title="A different finish each race">🎲 Random</button>
+            <button data-v="funnel" title="Slingshot funnel with flippers">Funnel</button>
+            <button data-v="halfpipe" title="A half-pipe with a drain hole in the middle">Half-pipe</button>
+            <button data-v="freefall" title="A slow free fall with boost pads that shoot you down">Free fall</button>
           </div>
         </div>
         <div class="field">

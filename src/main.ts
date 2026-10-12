@@ -64,8 +64,8 @@ async function boot() {
 
   function freshOptions(): SimOptions {
     const s = setup.settings;
-    const finale = s.finale === 'random' ? undefined : s.finale;
-    return { names: setup.names(), seed: randomSeed(), length: s.length, mode: s.mode, funnels: s.funnels, finale };
+    const finish = s.finish === 'random' ? undefined : s.finish;
+    return { names: setup.names(), seed: randomSeed(), length: s.length, mode: s.mode, funnels: s.funnels, finish };
   }
 
   function load(opts: SimOptions) {
@@ -98,7 +98,7 @@ async function boot() {
 
   // ---- section preview ----------------------------------------------------------
 
-  /** Shows one section on its own (no marbles, moving parts running), from the section guide. */
+  /** Shows one section on its own, from the section guide, with marbles dropping through it nonstop. */
   function showSection(i: number) {
     clearTimeout(demoTimer);
     screen = 'preview';
@@ -338,7 +338,7 @@ async function boot() {
         break;
       case 'portal':
         if (seen(e.y) || seen(e.fromY)) sfx.portal(e.forward, pan(e.x));
-        hud.tick(e.forward ? `🌀 ${m!.name} found a shortcut!` : `🌀 ${m!.name} got portaled backwards!`);
+        hud.tick(e.hole ? `🕳 ${m!.name} got swallowed by a black hole!` : e.forward ? `🌀 ${m!.name} found a shortcut!` : `🌀 ${m!.name} got portaled backwards!`);
         break;
       case 'lift':
         if (seen(e.y)) sfx.lift(pan(e.x));
@@ -447,7 +447,7 @@ async function boot() {
 
     // Hold the camera on the start mixer during the countdown rather than chasing a bouncing marble.
     const target = followIdx !== null ? sim.marbles[followIdx] : sim.phase === 'countdown' ? null : front;
-    const crown = sim.phase === 'countdown' ? -1 : (sim.winner?.idx ?? front?.idx ?? -1);
+    const crown = sim.phase === 'countdown' || screen === 'preview' ? -1 : (sim.winner?.idx ?? front?.idx ?? -1);
     renderer.update(dt, target, drama ? 1.35 : 1, crown, followIdx);
     // The hint can change the card's height (and so the space left for the section) on phones.
     if (screen === 'preview' && guide.setScrolls(renderer.previewScrolls)) layout();

@@ -1,4 +1,4 @@
-import { SEGMENT_COUNTS } from '../sim/course';
+import { FINISHES, SEGMENT_COUNTS } from '../sim/course';
 import { segmentCount, type RaceLength, type WinMode } from '../sim/sim';
 
 export interface Settings {
@@ -6,8 +6,8 @@ export interface Settings {
   length: number;
   mode: WinMode;
   funnels: boolean;
-  /** Finale id, or 'random' to let the seed pick. */
-  finale: string;
+  /** Finish id, or 'random' to let the seed pick. */
+  finish: string;
 }
 
 export interface HistoryEntry {
@@ -66,7 +66,7 @@ export class Setup {
     length: SEGMENT_COUNTS.medium,
     mode: 'first',
     funnels: false,
-    finale: 'random',
+    finish: 'random',
     ...load<Partial<Settings>>(KEY.settings, {}),
   };
   private lists: Record<string, string> = load(KEY.lists, {});
@@ -75,6 +75,10 @@ export class Setup {
   constructor(private onDrop: () => void, private onNamesChanged: () => void) {
     // Older saves stored a preset name ('short' etc.); segmentCount maps those and clamps anything else.
     this.settings.length = segmentCount(this.settings.length as RaceLength | number);
+    // Finales were removed (Pinball became a segment), so drop the old saved choice.
+    delete (this.settings as Partial<Settings> & { finale?: string }).finale;
+    // A finish that no longer exists goes back to random.
+    if (!FINISHES.some((f) => f.id === this.settings.finish)) this.settings.finish = 'random';
     this.textarea.value = load<string>(KEY.names, SAMPLE_NAMES.join('\n'));
     this.textarea.addEventListener('input', () => {
       save(KEY.names, this.textarea.value);
@@ -90,7 +94,7 @@ export class Setup {
         const v = btn.dataset.v!;
         if (key === 'funnels') this.settings.funnels = v === 'on';
         else if (key === 'length') this.settings.length = SEGMENT_COUNTS[v as RaceLength];
-        else if (key === 'finale') this.settings.finale = v;
+        else if (key === 'finish') this.settings.finish = v;
         else this.settings.mode = v as WinMode;
         save(KEY.settings, this.settings);
         this.refreshSegs();

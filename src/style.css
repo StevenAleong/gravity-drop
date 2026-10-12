@@ -249,7 +249,9 @@ select option {
 }
 
 .seg button {
-  flex: 1;
+  /* Sized by label so a four-button row (Finish) fits a phone on one line. */
+  flex: 1 1 auto;
+  white-space: nowrap;
   border: none;
   background: transparent;
   padding: 7px 6px;

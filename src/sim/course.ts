@@ -102,6 +102,9 @@ function glassTiles(rng: Rng, rows: number): number[] {
   return tiles;
 }
 
+/** Pinball: depth of the lower table (inlane guides, slingshots and flippers) below the playfield. */
+const PINBALL_LOW = 13.5;
+
 const TEMPLATES: Template[] = [
   {
     id: 'pegs',
@@ -150,7 +153,7 @@ const TEMPLATES: Template[] = [
       // inward: no marble can fall straight down a side. Their tips stay ~0.9 m clear of the moving shelves.
       [2.0, 4.4, 6.8, 9.2, 11.6].forEach((ry, r) => {
         for (const x of r % 2 ? [5.35, 10.65] : [2.7, 8, 13.3]) {
-          b.slider(x, y0 + ry, 0.9, 0.8, range(rng, 2.0, 3.0), rng() * 6.3, 0.18, range(rng, 2, 3));
+          b.slider(x, y0 + ry, 0.9, 0.8, range(rng, 2.0, 3.0), rng() * 6.3, 0.36, range(rng, 2, 3));
         }
         if (r % 2) {
           b.ledge('left', y0 + ry - 0.4, 2.4, 0.8);
@@ -176,7 +179,7 @@ const TEMPLATES: Template[] = [
           // changing. Pads by a wall stay still, tilted inward, so nothing can rest in the corner.
           const byWall = x < 2 || x > W - 2;
           const dir = x < 2 ? 1 : x > W - 2 ? -1 : sign(rng);
-          const wobble = byWall ? undefined : { amp: 0.3, w: range(rng, 0.5, 1.1), phase: rng() * 6.3 };
+          const wobble = byWall ? undefined : { amp: 0.3, w: range(rng, 1.25, 2.75), phase: rng() * 6.3 };
           b.tramp(x, y, 1.5, dir * range(rng, 0.2, 0.36), range(rng, 5.5, 6.5), wobble);
         }
       }
@@ -197,7 +200,7 @@ const TEMPLATES: Template[] = [
       for (let r = 0; r < 6; r++) {
         const y = y0 + 2.8 + r * 2.6;
         for (const x of r % 2 ? [4.8, 8, 11.2] : [3.2, 6.4, 9.6, 12.8]) {
-          b.pendulum(x, y - rod, rod, 0.55, range(rng, 0.3, 0.42), range(rng, 1.8, 2.6), rng() * 6.3, range(rng, 6.5, 7.5));
+          b.pendulum(x, y - rod, rod, 0.55, range(rng, 0.3, 0.42), range(rng, 1.8, 2.6), rng() * 6.3, range(rng, 2.5, 3.5));
         }
         const [len, drop] = r % 2 ? [2.6, 0.8] : [1.0, 0.6];
         b.ledge('left', y - drop / 2, len, drop);
@@ -206,26 +209,77 @@ const TEMPLATES: Template[] = [
     },
   },
   {
-    id: 'portals',
-    name: 'PORTAL MAZE',
-    h: 14,
+    id: 'switches',
+    name: 'SWITCH MAZE',
+    h: 18,
     build(b, y0, rng) {
-      // Two backward portals "defend" a peg-free row, each sweeping its own half left and right at a
-      // steady speed. Get caught and you're sent back to the top of the maze.
-      // The pegs use the same even grid as the Peg Garden, with one row left out for the portals.
-      const top = y0 + 1.0;
-      const lineY = top + 6 * 1.4;
-      const speed = range(rng, 2.2, 2.8);
-      // Caught marbles reappear above the top row, centred on a gap between its pegs (x = 3.1 + 1.4k).
-      const exits = [0, 1].map(() => 3.1 + 1.4 * Math.floor(range(rng, 0, 8)));
-      const halves = [[1.0, 7.6], [8.4, 15.0]];
-      const firstPhase = rng();
-      halves.forEach(([x0, x1], i) =>
-        // Out of step with each other, so the gap between them keeps changing.
-        b.portal(x0, lineY, 0.6, exits[i], y0 + 0.4, false, { x0, x1, speed, phase: (firstPhase + i * 0.5) % 1 }),
-      );
-      // An even number of rows, so every pair gets its wall deflectors (as in the Peg Garden).
-      pegRows(b, rng, top, 10, 1.4, 1.4, { skip: (_x, y) => Math.abs(y - lineY) < 0.5 });
+      // A tree of flip-flop switches, like a Turing Tumble: a funnel feeds a switch, which feeds two
+      // funnels with a switch each, which feed four lanes. Every marble through a switch flips it, so
+      // arrival order deals the pack out across the lanes, and each lane is a different ride.
+      const Y = (y: number) => y0 + y;
+      const half = 1.25;
+      const tilt = 0.6;
+      // A funnel down to a throat 2.2 m wide (centre cx, bottom y), then the switch under it. The switch's
+      // high end sits just under the short throat wall, too close for a marble to slip past on the closed
+      // side. On the open side there's ~1.6 m clear under the wall: with longer throat walls and the switch
+      // higher, two marbles could arch between the wall and the switch and jam it.
+      const stage = (cx: number, x0: number, x1: number, top: number, y: number) => {
+        b.wall(x0, Y(top), cx - 1.1, Y(y));
+        b.wall(x1, Y(top), cx + 1.1, Y(y));
+        b.wall(cx - 1.1, Y(y), cx - 1.1, Y(y + 0.3));
+        b.wall(cx + 1.1, Y(y), cx + 1.1, Y(y + 0.3));
+        b.toggle(cx, Y(y + 1.5), half, tilt, sign(rng));
+      };
+      stage(8, 0, W, 0.6, 3.6);
+      stage(4, 0, 8, 6.1, 8.3);
+      stage(12, 8, W, 6.1, 8.3);
+
+      // Four lanes, 4 m wide, each with its own ride.
+      const top = 11.4;
+      const bottom = 17.6;
+      b.wall(8, Y(6.1), 8, Y(bottom));
+      b.wall(4, Y(10.8), 4, Y(bottom));
+      b.wall(12, Y(10.8), 12, Y(bottom));
+      const lanes: ((lc: number) => void)[] = [
+        // Two glass floors, wall to wall: the first marble onto each is launched back up and the glass
+        // shatters. The highest bounce (~2.25 m) stays below the switch's trigger band and short of the
+        // floor above.
+        (lc) => {
+          b.breakaway(lc - 1.85, lc + 1.85, Y(top + 3.0), range(rng, 8, 9));
+          b.breakaway(lc - 1.85, lc + 1.85, Y(top + 5.6), range(rng, 8, 9));
+        },
+        // Pegs, with short wall ledges on the middle rows so nothing slides down a wall untouched.
+        // Every gap is either wide enough to pass (≥ 0.75 m clear) or closed, so nothing can wedge.
+        (lc) => {
+          for (let r = 0; r < 6; r++) {
+            const y = Y(top + 0.6 + r * 0.9);
+            if (r % 2) {
+              b.peg(lc, y);
+              b.wall(lc - 2, y - 0.3, lc - 1.4, y + 0.1);
+              b.wall(lc + 2, y - 0.3, lc + 1.4, y + 0.1);
+            } else {
+              b.peg(lc - 0.7, y);
+              b.peg(lc + 0.7, y);
+            }
+          }
+        },
+        // A windmill, with ledges above it turning wall-huggers onto it. Its tips stay ≥ 1 m from the walls
+        // and the ledges (the house rule is 0.9 m), so nothing gets pinched.
+        (lc) => {
+          b.wall(lc - 2, Y(top + 0.6), lc - 1.1, Y(top + 1.3));
+          b.wall(lc + 2, Y(top + 0.6), lc + 1.1, Y(top + 1.3));
+          b.windmill(lc, Y(top + 3.2), 0.95, sign(rng) * range(rng, 2.5, 3.5), 3, rng() * 6);
+        },
+        // Three shelves from alternate walls, 2 m apart so the gap under each tip is wide open.
+        (lc) => {
+          for (let k = 0; k < 3; k++) {
+            const s = k % 2 ? 1 : -1;
+            const y = Y(top + 0.4 + k * 2.0);
+            b.wall(lc + s * 2, y, lc - s * 0.6, y + 0.8);
+          }
+        },
+      ];
+      shuffle(rng, lanes).forEach((lane, i) => lane(2 + i * 4));
     },
   },
   {
@@ -285,11 +339,57 @@ const TEMPLATES: Template[] = [
       glassFloors(b, y0, rng, glassTiles(rng, GLASS_ROWS));
     },
   },
+  {
+    // A pinball table: a playfield of big, spaced-out pop bumpers, then the lower table of a real machine.
+    // Inlane guides funnel everything into a pair of flippers over a narrow drain, two slingshots stand in
+    // front of the flippers (off the walls, so marbles can roll down the inlane behind them), and an
+    // outlane beside each wall lets a lucky marble skip the flippers altogether. (It used to be the
+    // "Final Pinball" finale.)
+    id: 'pinball',
+    name: 'PINBALL',
+    h: PINBALL_LOW + 5.5,
+    build(b, y0, rng) {
+      // Rows of 2, 1, 2, 3, 2 bumpers, all the same size. Gaps in a row stay wide (3.8 m clear here): with
+      // 1 m gaps nearly every marble clipped a bumper and got kicked back up, so a row became a ceiling.
+      const pops: [number, number][] = [
+        [3.9, 2.5], [12.1, 2.5],
+        [8, 4.2],
+        [5.5, 7.2], [10.5, 7.2],
+        [3.0, 9.8], [8, 9.8], [13.0, 9.8],
+        [5.5, 12.0], [10.5, 12.0],
+      ];
+      for (const [bx, by] of pops) b.bumper(bx, y0 + by, 0.6);
+      // Plain bars on the walls turn wall-huggers back into the playfield, so few marbles fall straight
+      // into an outlane.
+      for (const [y, len] of [[4.8, 1.6], [10.6, 1.4]]) {
+        b.wall(0, y0 + y, len, y0 + y + 1.0);
+        b.wall(W, y0 + y, W - len, y0 + y + 1.0);
+      }
+
+      // The lower table, from y0 + PINBALL_LOW. On each side: an inlane guide slopes from 1 m off the wall
+      // down to the flipper's hinge (the gap between it and the wall is the outlane, ~0.85 m clear, and
+      // nothing below it), a slingshot stands in front of the flipper with its kicking face toward the
+      // middle and ~0.85 m of inlane clear behind it, and the flipper sits at the bottom. The drain between
+      // the flipper tips is ~2.2 m clear: much narrower than the old funnel's, but still too wide for two
+      // marbles to arch across.
+      const L = y0 + PINBALL_LOW;
+      const phase = rng() * 2;
+      for (const s of [1, -1]) {
+        const X = (x: number) => (s > 0 ? x : W - x);
+        b.wall(X(1.0), L + 0.6, X(5.2), L + 3.55);
+        b.sling(X(2.4), L, X(4.8), L + 1.8, 8);
+        b.flipper(X(5.35), L + 3.6, 1.5, s, range(rng, 1.0, 1.6), phase + (s > 0 ? 0 : 0.5));
+      }
+    },
+  },
 ];
 
 /** Height of the funnel inserted after each segment when funnels are on. */
 const FUNNEL_H = 5.5;
 const THROAT = 1.8;
+/** Valve guard: how far its doors swing open (radians below level), and the share of each cycle they stay open. */
+const VALVE_SWING = 1.65;
+const VALVE_OPEN = [0.62, 0.72];
 
 /**
  * Obstacles that guard a funnel's throat. Every one keeps the throat moving (no static plug),
@@ -306,15 +406,18 @@ const FUNNEL_GUARDS: { id: string; name: string; build(b: Builder, ty: number, r
     },
   },
   {
-    // Two half-doors close the throat and swing open together: the pile waits, then bursts out.
+    // Two half-doors close the throat and swing open together: the pile waits, then bursts out. Open, they
+    // swing a little past straight down (VALVE_SWING), so their tips clear the throat's full width: at the
+    // trapdoors' usual 1.35 rad they left ~1.1 m between them, and two marbles side by side (1.28 m) jammed
+    // there until the doors closed and knocked them back up the funnel.
     id: 'valve',
     name: 'VALVE',
     build(b, ty, rng) {
       const period = range(rng, 2.2, 3.0);
-      const open = period * range(rng, 0.5, 0.6);
+      const open = period * range(rng, VALVE_OPEN[0], VALVE_OPEN[1]);
       const ph = rng() * 6;
-      b.trapdoor(8 - THROAT / 2, ty, THROAT / 2, 1, period, open, ph);
-      b.trapdoor(8 + THROAT / 2, ty, THROAT / 2, -1, period, open, ph);
+      b.trapdoor(8 - THROAT / 2, ty, THROAT / 2, 1, period, open, ph, VALVE_SWING);
+      b.trapdoor(8 + THROAT / 2, ty, THROAT / 2, -1, period, open, ph, VALVE_SWING);
     },
   },
   {
@@ -353,6 +456,12 @@ const FUNNEL_GUARDS: { id: string; name: string; build(b: Builder, ty: number, r
       b.breakaway(8 - THROAT / 2, 8 + THROAT / 2, ty, range(rng, 7.5, 8.5));
     },
   },
+  {
+    // Just the funnel, nothing in the throat: the squeeze alone bunches the pack and jostles the order.
+    id: 'plain',
+    name: 'PLAIN',
+    build() {},
+  },
 ];
 
 /** Two walls that squeeze the whole course into a narrow throat at the centre, guarded by an obstacle. */
@@ -376,195 +485,136 @@ function pickSegments(rng: Rng, count: number): Template[] {
   return out;
 }
 
-/** Race-length presets, in random segments (the finale comes on top). The setup screen allows any count in between. */
+/** Race-length presets, in random segments (the finish comes on top). The setup screen allows any count in between. */
 export const SEGMENT_COUNTS = { short: 5, medium: 10, epic: 15 } as const;
 export const MIN_SEGMENTS = 1;
 export const MAX_SEGMENTS = SEGMENT_COUNTS.epic;
 
-// ---- finales ------------------------------------------------------------------
+// ---- finishes -----------------------------------------------------------------
 
-/** The last section of every course: it ends in the finish line and the basin. */
-interface Finale {
+/** The very end of every course, under the last segment: the finish line and the basin. */
+interface Finish {
   id: string;
   name: string;
   /** Height, including the basin. */
   h: number;
-  /** Finish line, measured down from the top of the finale. */
+  /** Finish line, measured down from the top of the finish. */
   finish: number;
   build(b: Builder, y0: number, rng: Rng): void;
 }
 
-/** From the top of `finishFunnel` to the finish line, and to the bottom of its basin. */
-const FINISH_DROP = 5.5;
-const FINISH_END = 9.5;
+/** Half-width of the drain hole at the bottom of the half-pipe (1.4 m clear: two marbles can't arch across it). */
+const HALFPIPE_HOLE = 0.85;
+/** Free fall: depth of the finish line, the slow fall speed the air holds marbles to, and a boost pad's kick (m/s). */
+const FREEFALL_FINISH = 40;
+const FREEFALL_SPEED = 2.5;
+const FREEFALL_BOOST = 10;
+/** Sideways damping per step: a half-life of about 6 s, so marbles keep the angle they came in at. */
+const FREEFALL_DRAG = 0.001;
+/** Rising boost pads: how fast they stream up (m/s, the slow end of the speed lines) and the seconds between spawns. */
+const FREEFALL_RISE = 20;
+const FREEFALL_GAP: [number, number] = [0.3, 0.7];
+/** Width of a rising boost pad (m). It was 1.4; the user doubled it. */
+const FREEFALL_PAD_W = 2.8;
 
-/**
- * The shared ending: funnel walls from both side walls at y down to the throat (x 6.6-9.4) 4.6 m lower,
- * then the finish line and a V-shaped basin. Only the middle stretch of each funnel wall is a slingshot;
- * the plain bit by the throat lets marbles settle out instead of ping-ponging forever.
- */
-function finishFunnel(b: Builder, y: number, rng: Rng) {
-  const fy = (x: number) => y + (x / 6.6) * 4.6;
-  for (const s of [1, -1]) {
-    const X = (x: number) => (s > 0 ? x : W - x);
-    b.wall(X(0), fy(0), X(1.2), fy(1.2));
-    b.sling(X(1.2), fy(1.2), X(4.6), fy(4.6), 6);
-    // A short flipper at the bottom of each wall, like a pinball table's: marbles rolling down the wall
-    // land on it and can get flicked back up. The drain between the two tips stays ~3.5 m wide, so
-    // marbles always get through.
-    b.wall(X(4.6), fy(4.6), X(5.2), fy(5.2));
-    b.flipper(X(5.35), fy(5.35), 1.5, s, range(rng, 1.6, 2.4), rng() * 0.25);
-  }
-  b.wall(0, y + 8, 8, y + 9.7);
-  b.wall(W, y + 8, 8, y + 9.7);
-}
-
-const PINBALL_FUNNEL = 14;
-/** Extra room under Mayhem's top peg rows for its row of pendulums. */
-const MAYHEM_TOP = 1.6;
-/** Extra room for Mayhem's two glass-tile floors (everything from its three funnels down sits this much lower). */
-const MAYHEM_GLASS = 6.2;
-const MAYHEM_FUNNEL = 37.6 + MAYHEM_TOP + MAYHEM_GLASS;
-/** Width of each of Mayhem's three funnel throats. */
-const MAYHEM_THROAT = 2.0;
-
-export const FINALES: Finale[] = [
+export const FINISHES: Finish[] = [
   {
-    // A pinball table: a spaced-out diamond of pop bumpers, slingshots on both side walls, then the
-    // slingshot funnel, so the last few metres keep flinging the leaders around.
-    id: 'pinball',
-    name: 'FINAL PINBALL',
-    h: PINBALL_FUNNEL + FINISH_END,
-    finish: PINBALL_FUNNEL + FINISH_DROP,
-    build(b, y0, rng) {
-      // The bumper x's are picked so every x between the side slingshots meets one (|x - bx| < r + MARBLE_R):
-      // no straight drops into the throat. Below the diamond sit two evenly spaced rows, 4 then 5, the 5
-      // sitting in the gaps of the 4 (the middle one right over the throat); the 4 leave the sides open for
-      // the wall bars. Gaps in a row stay at least 1.5 m: with 1 m gaps nearly every marble clipped a bumper
-      // and got kicked back up, so a row became a ceiling (and a bottom row down by the funnel trapped
-      // marbles: ~1.4 rescues/race).
-      const pops: [number, number, number][] = [
-        [3.9, 2.5, 0.6], [12.1, 2.5, 0.6],
-        [8, 4.2, 0.6],
-        [5.5, 7.2, 0.6], [10.5, 7.2, 0.6],
-        [4.4, 9.2, 0.45], [6.8, 9.2, 0.45], [9.2, 9.2, 0.45], [11.6, 9.2, 0.45],
-        [2.2, 13.0, 0.55], [5.1, 13.0, 0.55], [8.0, 13.0, 0.55], [10.9, 13.0, 0.55], [13.8, 13.0, 0.55],
-      ];
-      for (const [bx, by, r] of pops) b.bumper(bx, y0 + by, r);
-      b.sling(0, y0 + 3.8, 2.5, y0 + 6.8, 8);
-      b.sling(W, y0 + 3.8, W - 2.5, y0 + 6.8, 8);
-      // Between the two rows: a short bar on each wall feeding a short, quick flipper, so nothing falls
-      // straight down a side and wall-huggers get flicked back into the bumpers. The flippers swing at least
-      // ~1.1 m clear of every bumper, so nothing gets pinched. (Four slingshots in the middle juggled marbles
-      // against the bumper row above: ~1.3 rescues/race, so they were removed.)
-      const phase = rng() * 2;
+    // Funnel walls from both side walls down to the throat (x 6.6-9.4) 4.6 m lower, then the finish line
+    // and a V-shaped basin. Only the middle stretch of each funnel wall is a slingshot; the plain bit by the
+    // throat lets marbles settle out instead of ping-ponging forever.
+    id: 'funnel',
+    name: 'SLINGSHOT FUNNEL',
+    h: 9.5,
+    finish: 5.5,
+    build(b, y, rng) {
+      const fy = (x: number) => y + (x / 6.6) * 4.6;
       for (const s of [1, -1]) {
         const X = (x: number) => (s > 0 ? x : W - x);
-        b.wall(X(0), y0 + 9.6, X(1.0), y0 + 10.5);
-        b.flipper(X(1.15), y0 + 10.6, 1.2, s, range(rng, 0.9, 1.4), phase + (s > 0 ? 0 : 0.5));
+        b.wall(X(0), fy(0), X(1.2), fy(1.2));
+        b.sling(X(1.2), fy(1.2), X(4.6), fy(4.6), 6);
+        // A short flipper at the bottom of each wall, like a pinball table's: marbles rolling down the wall
+        // land on it and can get flicked back up. The drain between the two tips stays ~3.5 m wide, so
+        // marbles always get through.
+        b.wall(X(4.6), fy(4.6), X(5.2), fy(5.2));
+        b.flipper(X(5.35), fy(5.35), 1.5, s, range(rng, 1.6, 2.4), rng() * 0.25);
       }
-      finishFunnel(b, y0 + PINBALL_FUNNEL, rng);
+      b.wall(0, y + 8, 8, y + 9.7);
+      b.wall(W, y + 8, 8, y + 9.7);
     },
   },
   {
-    // Most obstacle types in the game (all but trapdoors, stampers and the lift, which the user took out),
-    // stacked into one long finale. Moving parts keep at least a marble's width (~1 m) apart, so nothing
-    // gets pinched between two of them.
-    id: 'mayhem',
-    name: 'FINAL MAYHEM',
-    h: MAYHEM_FUNNEL + FINISH_END,
-    finish: MAYHEM_FUNNEL + FINISH_DROP,
-    build(b, y0, rng) {
-      // Pegs (with their wall deflectors), then a row of 4 pendulums with bumper balls (as in the Pendulum
-      // Swing; the rods pass through the pegs). Their balls stay ~1 m clear of the pegs and of each other.
-      pegRows(b, rng, y0 + 1.0, 2, 1.4, 1.4);
-      for (const x of [3.2, 6.4, 9.6, 12.8]) {
-        b.pendulum(x, y0 + 3.6, 1.2, 0.55, range(rng, 0.3, 0.42), range(rng, 1.8, 2.6), rng() * 6.3, range(rng, 6.5, 7.5));
-      }
-      // Everything below sits MAYHEM_TOP lower to make room for them.
-      const Y = (y: number) => y0 + MAYHEM_TOP + y;
-
-      // Two rows of slowly rocking trampolines (wall pads tilt away from the wall and rock less).
-      for (const [y, xs] of [[5.2, [1.0, 4.6, 8, 11.4, 15.0]], [7.4, [2.8, 6.3, 9.7, 13.2]]] as const) {
-        for (const x of xs) {
-          const byWall = x < 2 || x > W - 2;
-          const dir = x < 2 ? 1 : x > W - 2 ? -1 : sign(rng);
-          const wobble = { amp: byWall ? 0.15 : 0.3, w: range(rng, 0.5, 1.1), phase: rng() * 6.3 };
-          b.tramp(x, Y(y), 1.5, dir * range(rng, 0.2, 0.36), range(rng, 5.5, 6.5), wobble);
+    // A half-pipe with a drain hole in the middle. A roof (Λ) over the middle sends everyone out to the
+    // walls, so every marble drops in from the sides and swings down the bowl toward the hole. A fast
+    // marble jumps the hole and swings up the far side, while a slower one behind drops straight in: speed
+    // can cost the leader the race. The bowl slopes toward the hole everywhere, so nothing can sit still.
+    id: 'halfpipe',
+    name: 'HALF-PIPE',
+    h: 11.2,
+    finish: 7.2,
+    build(b, y) {
+      // The roof starts 1.6 m down, clear of whatever the last segment ends in, and sits above the bowl's rims, so
+      // a marble swinging in the bowl (which can't climb above the rim it came in at) never reaches it.
+      b.wall(8, y + 1.6, 3.2, y + 3.4);
+      b.wall(8, y + 1.6, W - 3.2, y + 3.4);
+      // The bowl: a parabola from the hole's lips (y + 6.4) up to the walls (y + 4.0).
+      const lipY = y + 6.4;
+      const depth = 2.4;
+      const n = 8;
+      const span = W / 2 - HALFPIPE_HOLE;
+      for (const s of [1, -1]) {
+        const X = (x: number) => (s > 0 ? x : W - x);
+        let px = 0;
+        let py = lipY - depth;
+        for (let i = 1; i <= n; i++) {
+          const u = 1 - i / n; // 1 at the wall, 0 at the lip
+          const x = span - u * span;
+          const yy = lipY - depth * u * u;
+          b.wall(X(px), py, X(x), yy);
+          px = x;
+          py = yy;
         }
       }
-
-      // Windmills, and bumpers in their gaps.
-      const dir = sign(rng);
-      [3, 8, 13].forEach((x, i) => b.windmill(x, Y(10.6), 1.4, (i % 2 ? -dir : dir) * range(rng, 1.6, 2.4), 3, rng() * 6));
-      b.bumper(5.5, Y(12.8), 0.5);
-      b.bumper(10.5, Y(12.8), 0.5);
-
-      // Sliding shelves with a bumper between them (~0.95 m clear of a shelf at full swing).
-      b.bumper(3.2, Y(14.8), 0.5);
-      b.bumper(8, Y(14.8), 0.5);
-      b.bumper(12.7, Y(14.8), 0.5);
-
-      // A see-saw in the middle, and a flipper on each side fed by a short ramp.
-      b.seesaw(8, Y(19.4), 2.2, 0.3, range(rng, 2.0, 3.0), rng() * 6);
-      b.wall(0, Y(18.2), 2.6, Y(19.4));
-      b.wall(W, Y(18.2), W - 2.6, Y(19.4));
-      b.flipper(2.8, Y(19.5), 1.7, 1, range(rng, 1.6, 2.6), rng() * 3);
-      b.flipper(W - 2.8, Y(19.5), 1.7, -1, range(rng, 1.6, 2.6), rng() * 3);
-
-      // 3 rows of pegs.
-      pegRows(b, rng, Y(22), 3, 1.4, 1.4);
-
-      // Two floors of glass tiles with a peg row between them (as in the Glass Tiles section), floors at
-      // Y 27.2 and 30.8. Whoever reaches a tile first breaks it and is launched back up into the pegs.
-      glassFloors(b, Y(25.0), rng, glassTiles(rng, 2));
-      // Everything below the glass sits MAYHEM_GLASS lower.
-      const G = (y: number) => Y(MAYHEM_GLASS + y);
-
-      // Three funnels side by side ( \/\/\/ ): the pack splits between three throats.
-      const cell = W / 3;
-      for (let i = 0; i < 3; i++) {
-        const cx = cell * (i + 0.5);
-        b.wall(cell * i, G(26.0), cx - MAYHEM_THROAT / 2, G(27.6));
-        b.wall(cell * (i + 1), G(26.0), cx + MAYHEM_THROAT / 2, G(27.6));
-      }
-
-      // Two portals sway together under the throats, one throat apart: at one end of the sweep they sit
-      // under the left and middle throats, at the other under the middle and right ones. Get caught and
-      // you're sent back up to just above the see-saw and flippers (below the shelves, so the setback is a
-      // short one). Each exit slowly sweeps its own half, mirroring the other, so you never know where
-      // you'll come out. A marble coming out anywhere on that line is at least 0.6 m clear of everything.
-      const speed = range(rng, 2.2, 3.8);
-      const phase = rng();
-      const exitSpeed = range(rng, 1.2, 1.8);
-      const exitPhase = rng();
-      [[cell / 2, cell * 1.5, 1.5, 7.5], [cell * 1.5, cell * 2.5, 8.5, W - 1.5]].forEach(([x0, x1, e0, e1], i) =>
-        b.portal(x0, G(29.0), 0.6, e0, Y(17.4), false, { x0, x1, speed, phase }, { x0: e0, x1: e1, speed: exitSpeed, phase: (exitPhase + i * 0.5) % 1 }),
-      );
-
-      // Five rows of pegs, then the finish.
-      pegRows(b, rng, G(30.8), 5, 1.4, 1.4);
-
-      // Finish line
-      finishFunnel(b, y0 + MAYHEM_FUNNEL, rng);
+      // Basin under the bowl.
+      b.wall(0, y + 9.4, 8, y + 11.1);
+      b.wall(W, y + 9.4, 8, y + 11.1);
+    },
+  },
+  {
+    // A long, slow free fall. Air drag (a SkyZone) holds every marble to a gentle fall speed while speed
+    // lines stream past behind them, so it feels fast without being a long drop. Downward boost pads are
+    // scattered through it: a marble that falls through one shoots ahead, then eases back to the slow
+    // speed, so a lucky line can pass marbles that were already falling. No funnel: marbles fall straight
+    // from wherever they came out of the last segment to the finish line.
+    id: 'freefall',
+    name: 'FREE FALL',
+    h: FREEFALL_FINISH + 4.0,
+    finish: FREEFALL_FINISH,
+    build(b, y, rng) {
+      b.sky(0, y + 0.2, W, FREEFALL_FINISH - 0.2, FREEFALL_SPEED, 0.012, 1.5, rng() * 6.3, FREEFALL_DRAG);
+      // Boost pads stream up from 1 m above the line to 2 m below the top, appearing at random x
+      // along the bottom: about 2 boosts per marble.
+      b.risers(0, y + 2, W, FREEFALL_FINISH - 3, FREEFALL_PAD_W, 0.6, FREEFALL_RISE, FREEFALL_BOOST, FREEFALL_GAP, 0.8, Math.floor(rng() * 2 ** 32));
+      // Basin.
+      b.wall(0, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
+      b.wall(W, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
     },
   },
 ];
 
 // ---- section previews ---------------------------------------------------------
 
-export type SectionKind = 'segment' | 'finale' | 'funnel';
+export type SectionKind = 'segment' | 'finish' | 'funnel';
 
 /** Everything the setup screen's section guide can preview, in the order it lists them. */
 export const SECTIONS: { kind: SectionKind; id: string; name: string }[] = [
   ...TEMPLATES.map(({ id, name }) => ({ kind: 'segment' as const, id, name })),
-  ...FINALES.map(({ id, name }) => ({ kind: 'finale' as const, id, name })),
+  ...FINISHES.map(({ id, name }) => ({ kind: 'finish' as const, id, name })),
   ...FUNNEL_GUARDS.map(({ id, name }) => ({ kind: 'funnel' as const, id, name })),
 ];
 
 /**
  * Builds one section on its own, for the setup screen's preview: no gate, mixer or marbles. Only
- * finales get a finish line (`finishY` stays Infinity otherwise).
+ * finishes get a finish line (`finishY` stays Infinity otherwise).
  */
 export function buildSection(sim: Sim, b: Builder, rng: Rng, kind: SectionKind, id: string) {
   sim.topY = sim.mixerTop = sim.gateY = -0.5;
@@ -576,11 +626,12 @@ export function buildSection(sim: Sim, b: Builder, rng: Rng, kind: SectionKind, 
     funnel(b, 0, guard, rng);
     name = `FUNNEL · ${guard.name}`;
     h = FUNNEL_H;
-  } else if (kind === 'finale') {
-    const finale = FINALES.find((f) => f.id === id) ?? FINALES[0];
-    finale.build(b, 0, rng);
-    sim.finishY = finale.finish;
-    ({ name, h } = finale);
+  } else if (kind === 'finish') {
+    const finish = FINISHES.find((f) => f.id === id) ?? FINISHES[0];
+    finish.build(b, 0, rng);
+    sim.finishY = finish.finish;
+    name = `FINISH · ${finish.name}`;
+    h = finish.h;
   } else {
     const tpl = TEMPLATES.find((t) => t.id === id) ?? TEMPLATES[0];
     tpl.build(b, 0, rng);
@@ -592,8 +643,8 @@ export function buildSection(sim: Sim, b: Builder, rng: Rng, kind: SectionKind, 
   b.wall(W + 0.15, sim.topY, W + 0.15, h, 0.15);
 }
 
-/** Lays out start gate → random segments → finish funnel and basin. */
-export function buildCourse(sim: Sim, b: Builder, rng: Rng, count: number, funnels = false, finaleId?: string) {
+/** Lays out start gate → random segments → finish (finish line and basin). */
+export function buildCourse(sim: Sim, b: Builder, rng: Rng, count: number, funnels = false, finishId?: string) {
   const top = -14;
   sim.topY = top;
 
@@ -622,14 +673,14 @@ export function buildCourse(sim: Sim, b: Builder, rng: Rng, count: number, funne
     }
   });
 
-  // The finale: picked from the seed unless the player chose one. The rng is drawn either way, so a
-  // seed builds the same course whichever finale it gets.
+  // The finish, picked from the seed unless the player chose one. The rng value is drawn either way, so a
+  // seed builds the same course whichever finish it gets.
   const roll = rng();
-  const finale = FINALES.find((f) => f.id === finaleId) ?? FINALES[Math.floor(roll * FINALES.length)];
-  sim.segments.push({ name: finale.name, y0: y, h: finale.h });
-  finale.build(b, y, rng);
-  sim.finishY = y + finale.finish;
-  y += finale.h;
+  const finish = FINISHES.find((f) => f.id === finishId) ?? FINISHES[Math.floor(roll * FINISHES.length)];
+  sim.segments.push({ name: `FINISH · ${finish.name}`, y0: y, h: finish.h });
+  finish.build(b, y, rng);
+  sim.finishY = y + finish.finish;
+  y += finish.h;
   sim.bottomY = y;
 
   b.wall(-0.15, top, -0.15, y, 0.15);

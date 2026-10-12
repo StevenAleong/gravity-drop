@@ -2,9 +2,9 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import { LIFT_SPEED, MARBLE_R, W } from '../sim/constants';
 import type { Marble, Sim } from '../sim/sim';
 import type { SimEvent, Visual } from '../sim/types';
-import type { BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, StamperZone, Zone } from '../sim/zones';
+import type { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, Zone } from '../sim/zones';
 import { Confetti, Fx } from './fx';
-import { BG, BG_BAND, BOOST, FAN, HAZARD, HELP, HURT, LIFT, PORTAL_BACK, PORTAL_FWD, STEEL, STYLE } from './palette';
+import { BG, BG_BAND, BLACKHOLE, BOOST, FAN, HAZARD, HELP, HURT, LIFT, PORTAL_BACK, PORTAL_FWD, SKY, STEEL, STYLE } from './palette';
 
 interface MarbleView {
   m: Marble;
@@ -46,6 +46,8 @@ export interface PreviewCam {
 const PREVIEW_MAX_H = 30;
 /** Auto-pan speed (m/s) for previews taller than the view. */
 const PREVIEW_PAN = 3;
+/** How fast (m/s) the free fall's speed lines streak past, on average. Marbles really fall at ~3.5. */
+const SKY_LINE_SPEED = 30;
 
 const darken = (c: number, k: number) =>
   (Math.round(((c >> 16) & 255) * k) << 16) | (Math.round(((c >> 8) & 255) * k) << 8) | Math.round((c & 255) * k);
@@ -293,12 +295,28 @@ export class Renderer {
     this.marbles.push({ m, root, spin, label, labelKey: '', trail: [] });
   }
 
+  /** Section previews add and take away marbles as they go: matches the views to the sim's marbles. */
+  private syncMarbles(sim: Sim) {
+    const views = new Map(this.marbles.map((mv) => [mv.m, mv]));
+    const live = new Set(sim.marbles);
+    for (const [m, mv] of views) {
+      if (live.has(m)) continue;
+      mv.root.destroy({ children: true });
+      mv.label.destroy();
+    }
+    for (const m of sim.marbles) if (!views.has(m)) this.addMarble(m);
+    const added = new Map(this.marbles.map((mv) => [mv.m, mv]));
+    this.marbles = sim.marbles.map((m) => added.get(m)!);
+  }
+
   // ---- events ---------------------------------------------------------------
 
   onEvent(e: SimEvent) {
     const sim = this.sim;
     if (!sim) return;
-    const color = (i: number) => sim.marbles[i].color;
+    // By idx, not position: a section preview takes marbles away as it goes.
+    const marble = (i: number) => sim.marbles.find((m) => m.idx === i);
+    const color = (i: number) => marble(i)?.color ?? 0xffffff;
     switch (e.type) {
       case 'gate':
         if (this.gateG) this.gateG.visible = false;
@@ -342,6 +360,14 @@ export class Renderer {
         this.fx.burst(e.x, e.y, 0xffffff, 12, 3, 0.06, -1);
         break;
       case 'portal': {
+        if (e.hole) {
+          // Swallowed: sucked down to a point, then spat out at the exit.
+          this.fx.ring(e.fromX, e.fromY, BLACKHOLE, 1.6, 0.1, 0.35);
+          this.fx.ring(e.x, e.y, BLACKHOLE, 0.2, 1.6, 0.5);
+          this.fx.burst(e.x, e.y, BLACKHOLE, 16, 5, 0.07, 0);
+          this.addShake(0.12);
+          break;
+        }
         const c = e.forward ? PORTAL_FWD : PORTAL_BACK;
         this.fx.ring(e.fromX, e.fromY, c, 0.2, 1.4, 0.4);
         this.fx.ring(e.x, e.y, c, 1.4, 0.2, 0.4);
@@ -362,10 +388,12 @@ export class Renderer {
         this.fx.burst(e.x, e.y, e.forward ? HELP : HURT, 14, 6, 0.08, 0);
         this.fx.ring(e.x, e.y, HAZARD, 0.2, 1.3, 0.35);
         break;
-      case 'finish':
-        this.fx.burst(sim.marbles[e.marble].x, sim.finishY, color(e.marble), 26, 8);
-        this.fx.ring(sim.marbles[e.marble].x, sim.finishY, color(e.marble), 0.3, 2.5, 0.7);
+      case 'finish': {
+        const x = marble(e.marble)?.x ?? W / 2;
+        this.fx.burst(x, sim.finishY, color(e.marble), 26, 8);
+        this.fx.ring(x, sim.finishY, color(e.marble), 0.3, 2.5, 0.7);
         break;
+      }
       case 'winner':
         this.confetti.launch(this.app.screen.width, this.app.screen.height, [color(e.marble), 0xffffff, 0xffd34d, 0x5dff9a, 0x3cf0ff, 0xff4fd8]);
         this.addShake(0.5);
@@ -489,6 +517,7 @@ export class Renderer {
     const mfx = this.marbleFxG;
     trail.clear();
     mfx.clear();
+    if (this.marbles.length !== sim.marbles.length || this.marbles.some((mv, i) => mv.m !== sim.marbles[i])) this.syncMarbles(sim);
 
     for (const mv of this.marbles) {
       const m = mv.m;
@@ -550,8 +579,69 @@ export class Renderer {
         return this.drawBooster(g, zv.z, (zv.anim += dt));
       case 'portal':
         return this.drawPortal(g, zv.z, (zv.anim += dt));
+      case 'blackhole':
+        return this.drawBlackHole(g, zv.z, (zv.anim += dt));
       case 'stamper':
         return this.drawStamper(g, zv.z);
+      case 'sky':
+        return this.drawSky(g, zv.z, (zv.anim += dt));
+      case 'riser':
+        return this.drawRiser(g, zv.z, (zv.anim += dt));
+    }
+  }
+
+  /**
+   * Speed lines streaking up past the marbles, much faster than they really fall, so the slow fall looks
+   * like a long, fast one. Each line's lane, speed and length come from its index, so they never jump.
+   */
+  private drawSky(g: Graphics, z: SkyZone, anim: number) {
+    const frac = (v: number) => v - Math.floor(v);
+    g.rect(z.x, z.y, z.w, z.h).fill({ color: SKY, alpha: 0.035 });
+    const n = Math.round((z.w * z.h) / 3);
+    for (let i = 0; i < n; i++) {
+      const len = 1.2 + frac(i * 0.731) * 2.6;
+      const speed = SKY_LINE_SPEED * (0.65 + frac(i * 0.377) * 0.7);
+      const span = z.h + len;
+      const along = frac(i * 0.293 + (anim * speed) / span);
+      const px = z.x + 0.15 + frac(i * 0.618) * (z.w - 0.3);
+      const top = z.y + z.h - along * span;
+      const y1 = Math.max(z.y, top);
+      const y2 = Math.min(z.y + z.h, top + len);
+      if (y2 - y1 < 0.1) continue;
+      const near = frac(i * 0.511);
+      g.moveTo(px, y1).lineTo(px, y2).stroke({ width: 0.03 + near * 0.04, color: SKY, alpha: 0.1 + near * 0.22, cap: 'round' });
+    }
+  }
+
+  /** Boost pads rushing up through the free fall, each with a fading streak below it like the speed lines. */
+  private drawRiser(g: Graphics, z: RiserZone, anim: number) {
+    const w = z.padW;
+    const h = z.padH;
+    // A column of chevrons per 1.4 m of pad width, and a trail streak at each edge and between columns.
+    const cols = Math.max(1, Math.round(w / 1.4));
+    const streaks = cols * 2 + 1;
+    for (const p of z.pads) {
+      const top = Math.max(z.y, p.y);
+      const bot = Math.min(z.y + z.h, p.y + h);
+      if (bot <= top) continue;
+      const trail = Math.min(2.4, z.y + z.h - bot);
+      if (trail > 0.05) {
+        for (let k = 0; k < streaks; k++) {
+          const tx = p.x + 0.2 + (k * (w - 0.4)) / (streaks - 1);
+          g.moveTo(tx, bot).lineTo(tx, bot + trail * (k % 2 ? 1 : 0.7));
+          g.stroke({ width: 0.05, color: BOOST, alpha: 0.18, cap: 'round' });
+        }
+      }
+      g.roundRect(p.x, top, w, bot - top, 0.12).fill({ color: BOOST, alpha: 0.15 + 0.6 * p.flash }).stroke({ width: 0.04, color: BOOST, alpha: 0.75 });
+      if (bot - top < h * 0.9) continue;
+      for (let c = 0; c < cols; c++) {
+        const cx = p.x + ((c + 0.5) * w) / cols;
+        for (let k = 0; k < 3; k++) {
+          const t = ((anim * 2 + k / 3) % 1) - 0.5;
+          chevron(g, cx, p.y + h / 2 + t * 0.35, 0, 1, 0.13);
+          g.stroke({ width: 0.06, color: BOOST, alpha: 0.9 - Math.abs(t) * 1.2, cap: 'round', join: 'round' });
+        }
+      }
     }
   }
 
@@ -698,6 +788,54 @@ export class Renderer {
       g.moveTo(z.bx + Math.cos(a0) * 0.42, z.by + Math.sin(a0) * 0.42)
         .arc(z.bx, z.by, 0.42, a0, a0 + 0.5)
         .stroke({ width: 0.05, color: c, alpha: 0.35 + z.flash * 0.6 });
+    }
+  }
+
+  private drawBlackHole(g: Graphics, z: BlackHoleZone, anim: number) {
+    // Drawn in a local frame scaled up by S: Pixi picks how many segments a circle gets from its radius
+    // in local units, and at world scale (radii of ~1) the rings came out as visible polygons.
+    const S = 40;
+    g.position.set(z.x, z.y);
+    g.scale.set(1 / S);
+    const r = z.r * S;
+    const pull = z.pull * S;
+    const spin = Math.sign(z.swirl) || 1;
+    // Faint edge of the well, so you can see the reach of its pull.
+    g.circle(0, 0, pull).fill({ color: BLACKHOLE, alpha: 0.04 }).stroke({ width: 0.03 * S, color: BLACKHOLE, alpha: 0.22 });
+    g.circle(0, 0, pull * 0.6).fill({ color: BLACKHOLE, alpha: 0.05 });
+    // Streaks of matter spiralling in from the edge of the well, each a short curved trail.
+    for (let k = 0; k < 16; k++) {
+      const seed = Math.sin(k * 12.9898) * 43758.5453;
+      const off = seed - Math.floor(seed);
+      const u = (anim * (0.35 + off * 0.2) + off * 7.3) % 1;
+      const pt = (v: number) => {
+        const rr = pull - (pull - r) * v;
+        const a = spin * (v * 4.5 + anim * 0.4) + off * Math.PI * 2;
+        return [Math.cos(a) * rr, Math.sin(a) * rr] as const;
+      };
+      g.moveTo(...pt(u));
+      for (let s = 1; s <= 4; s++) g.lineTo(...pt(Math.min(1, u + s * 0.04)));
+      g.stroke({ width: 0.045 * S, color: 0xffd9a0, alpha: 0.65 * Math.sin(u * Math.PI), cap: 'round', join: 'round' });
+    }
+    // Accretion disk: bright arcs whirling around the horizon.
+    for (let k = 0; k < 4; k++) {
+      const a0 = spin * anim * (5 - k) + k * 1.7;
+      const rr = r + (0.1 + k * 0.09) * S;
+      g.moveTo(Math.cos(a0) * rr, Math.sin(a0) * rr)
+        .arc(0, 0, rr, a0, a0 + spin * (2.2 - k * 0.3), spin < 0)
+        .stroke({ width: (0.08 - k * 0.012) * S, color: k % 2 ? 0xffb347 : BLACKHOLE, alpha: 0.95 - k * 0.15, cap: 'round' });
+    }
+    g.circle(0, 0, r + (0.06 + z.flash * 0.3) * S).fill({ color: 0xffe2b0, alpha: 0.35 + z.flash * 0.5 });
+    // The event horizon: pure black.
+    g.circle(0, 0, r).fill(0x000000);
+    // Exit marker
+    const bx = (z.bx - z.x) * S;
+    const by = (z.by - z.y) * S;
+    for (let k = 0; k < 6; k++) {
+      const a0 = -anim + (k * Math.PI) / 3;
+      g.moveTo(bx + Math.cos(a0) * 0.42 * S, by + Math.sin(a0) * 0.42 * S)
+        .arc(bx, by, 0.42 * S, a0, a0 + 0.5)
+        .stroke({ width: 0.05 * S, color: BLACKHOLE, alpha: 0.35 + z.flash * 0.6 });
     }
   }
 

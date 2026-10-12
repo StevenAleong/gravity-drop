@@ -2,13 +2,13 @@ import { SECTIONS, type SectionKind } from '../sim/course';
 
 const GROUPS: { kind: SectionKind; title: string; label: string; blurb: string }[] = [
   { kind: 'segment', title: 'Course sections', label: 'Course section', blurb: 'Each race stacks these in a random order.' },
-  { kind: 'finale', title: 'Final drops', label: 'Final drop', blurb: 'Every race ends with one of these, then the finish line.' },
   {
     kind: 'funnel',
     title: 'Funnel guards',
     label: 'Funnel guard · Funnels on only',
     blurb: 'With Funnels on, every section ends in a funnel guarded by one of these.',
   },
+  { kind: 'finish', title: 'Finishes', label: 'Finish', blurb: 'The very bottom of every course, under the last section, with the finish line.' },
 ];
 
 const ABOUT: Record<string, string> = {
@@ -19,20 +19,24 @@ const ABOUT: Record<string, string> = {
   'segment:trampolines': 'Six rows of springy pads, most of them slowly rocking, so every bounce fires a marble off at a different angle.',
   'segment:pendulums':
     'Six rows of swinging pendulums with bumper balls on the end. A ball that is swinging your way knocks you along with it, so the timing of every hit matters.',
-  'segment:portals':
-    'A peg field with two portals patrolling a gap in the middle. Touch one and you are sent back to the top of the maze, which happens to about a quarter of the pack.',
+  'segment:switches':
+    'A tree of flip-flop switches. Every marble that passes a switch flips it the other way, so the pack is dealt out across four lanes by arrival order: two glass floors that launch the first marble onto each, a peg zigzag, a windmill or a shelf zigzag.',
   'segment:grinder':
     'The longest section: row after row of spinning windmills, with one big mill in the middle. Neighbours spin opposite ways and bat marbles sideways.',
   'segment:glass':
     'Four full-width floors of glass. The first marble to land on each one is launched back up and the glass shatters, so the leader pays and the pack drops straight through.',
   'segment:glasstiles':
     'Four glass floors, each split into 1 to 4 tiles at random. A tile launches the first marble that lands on it and then shatters, so the first marble into each part of a floor loses time.',
-  'finale:pinball':
-    'A pinball table: pop bumpers that kick marbles away, slingshots on the walls and quick flippers, then a slingshot funnel down to the finish.',
-  'finale:mayhem':
-    'Nearly every obstacle in one long finale: pendulums, trampolines, windmills, sliding shelves, a see-saw, flippers, two floors of breakaway glass tiles, three small funnels and two portals that send marbles back up to the see-saw.',
+  'segment:pinball': 'A pinball table: big pop bumpers that kick marbles away, then a funnel down to two flippers over a narrow drain, with slingshots in front of them. A lucky marble can slip down an outlane by the wall and skip the flippers.',
+  'finish:funnel':
+    'A funnel with slingshots on its walls and a flipper at the bottom of each one, down to the finish line.',
+  'finish:halfpipe':
+    'A half-pipe with a drain hole in the middle. Everyone drops in from the sides and swings toward the hole. Come in too fast and you jump right over it, while a slower marble behind you drops in.',
+  'finish:freefall':
+    'A very long free fall to the finish line, with no walls or funnels. The air holds everyone to the same slow fall and keeps the angle you came in at, while boost pads rush up past you. Meet one and you shoot downward, past marbles that were falling ahead of you.',
   'funnel:paddles': 'A paddle wheel just under the throat flings each marble left or right as it comes through.',
-  'funnel:valve': 'Two half-doors close the throat and swing open together: the pile waits, then bursts out.',
+  'funnel:valve': 'Two half-doors close the throat and swing wide open together: the pile waits, then bursts out.',
+  'funnel:plain': 'Just the funnel, with nothing in the throat. Everyone squeezes through the same gap, jostling for position.',
   'funnel:blower': 'A pulsing updraft through the throat blows marbles back up into the pile.',
   'funnel:shuttle': 'A shelf slides back and forth under the throat, catching marbles and tipping them off either side.',
   'funnel:bumper': 'A bumper sits right in the mouth of the funnel and splits the stream.',
@@ -40,6 +44,9 @@ const ABOUT: Record<string, string> = {
 };
 
 const key = (i: number) => `${SECTIONS[i].kind}:${SECTIONS[i].id}`;
+
+/** Indexes into SECTIONS in the order the guide lists them (by GROUPS), which prev/next also follow. */
+const ORDER = GROUPS.flatMap((g) => SECTIONS.flatMap((s, i) => (s.kind === g.kind ? [i] : [])));
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 /** The setup screen's section guide (a list with a description of each section) and the preview card. */
@@ -50,7 +57,7 @@ export class SectionGuide {
   index = 0;
 
   /** `onPreview` shows SECTIONS[i] on the stage; `onBack` leaves the preview. */
-  constructor(private onPreview: (i: number) => void, private onBack: () => void) {
+  constructor (private onPreview: (i: number) => void, private onBack: () => void) {
     $('btn-guide').addEventListener('click', () => this.open());
     $('btn-sections-close').addEventListener('click', () => this.modal.close());
     this.modal.addEventListener('click', (e) => {
@@ -70,16 +77,17 @@ export class SectionGuide {
     this.modal.showModal();
   }
 
-  /** Shows the previous (-1) or next (+1) section, wrapping around. */
+  /** Shows the previous (-1) or next (+1) section in list order, wrapping around. */
   step(d: number) {
-    this.onPreview((this.index + d + SECTIONS.length) % SECTIONS.length);
+    const pos = ORDER.indexOf(this.index);
+    this.onPreview(ORDER[(pos + d + ORDER.length) % ORDER.length]);
   }
 
   /** Fills the preview card for SECTIONS[i] and shows it. `scrolls`: the section is taller than the view. */
   showPreview(i: number, scrolls: boolean) {
     this.index = i;
     const s = SECTIONS[i];
-    $('preview-kind').textContent = `${GROUPS.find((g) => g.kind === s.kind)!.label} · ${i + 1} of ${SECTIONS.length}`;
+    $('preview-kind').textContent = `${GROUPS.find((g) => g.kind === s.kind)!.label} · ${ORDER.indexOf(i) + 1} of ${ORDER.length}`;
     $('preview-name').textContent = s.name;
     $('preview-about').textContent = ABOUT[key(i)] ?? '';
     this.setScrolls(scrolls);

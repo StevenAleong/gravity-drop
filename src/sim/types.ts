@@ -17,7 +17,8 @@ export type VisualStyle =
   | 'tramp'
   | 'breakaway'
   | 'hinge'
-  | 'rod';
+  | 'rod'
+  | 'toggle';
 
 export interface Visual {
   id: number;
@@ -51,7 +52,7 @@ export type SimEvent =
   /** A breakaway platform was touched: it launched the marble and is gone. `x1`-`x2` is its span at height `y`. */
   | { type: 'shatter'; marble: number; visual: number; x: number; y: number; x1: number; x2: number }
   | { type: 'warp'; marble: number; fromX: number; fromY: number; x: number; y: number }
-  | { type: 'portal'; marble: number; forward: boolean; fromX: number; fromY: number; x: number; y: number }
+  | { type: 'portal'; marble: number; forward: boolean; hole?: boolean; fromX: number; fromY: number; x: number; y: number }
   | { type: 'lift'; marble: number; x: number; y: number }
   | { type: 'boost'; marble: number; x: number; y: number }
   | { type: 'flip'; x: number; y: number }
