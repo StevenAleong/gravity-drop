@@ -308,13 +308,20 @@ export class Builder {
    * hangs `swing` radians below level (past π/2, its tip swings back out beyond the hinge).
    */
   trapdoor(hx: number, hy: number, len: number, side: number, period: number, openDur: number, phase: number, swing = 1.35) {
+    this.hatch(hx, hy, len, side, (t) => {
+      const u = (((t + phase) % period) + period) % period;
+      return u < openDur ? Math.min(1, u / 0.2) * Math.min(1, (openDur - u) / 0.3) : 0;
+    }, swing);
+  }
+
+  /** A trapdoor driven by `level(t)`: 0 closed, 1 fully open (swung down by `swing` rad). */
+  hatch(hx: number, hy: number, len: number, side: number, level: (t: number) => number, swing = 1.35) {
     const body = this.kinematic(hx, hy);
     this.arm(body, len, 0.14, side, 'trapdoor');
     let wasOpen = false;
     this.sim.obstacles.push({
       update: (t) => {
-        const u = (((t + phase) % period) + period) % period;
-        const open = u < openDur ? Math.min(1, u / 0.2) * Math.min(1, (openDur - u) / 0.3) : 0;
+        const open = level(t);
         if (open > 0 && !wasOpen) this.sim.emit({ type: 'trapdoor', x: hx + (side * len) / 2, y: hy });
         wasOpen = open > 0;
         body.setNextKinematicRotation(side * swing * open);
@@ -477,8 +484,8 @@ export class Builder {
   }
 
   /** Downward boost pads that stream up through the rectangle (see RiserZone), spawned from their own seeded rng. */
-  risers(x: number, y: number, w: number, h: number, padWs: number[], padH: number, rise: number, vy: number, gap: [number, number], seed: number) {
-    this.sim.zones.push(new RiserZone(x, y, w, h, padWs, padH, rise, vy, gap, mulberry32(seed)));
+  risers(x: number, y: number, w: number, h: number, padWs: number[], padH: number, rise: number, vy: number, gap: [number, number], clear: number, seed: number) {
+    this.sim.zones.push(new RiserZone(x, y, w, h, padWs, padH, rise, vy, gap, clear, mulberry32(seed)));
   }
 
   portal(

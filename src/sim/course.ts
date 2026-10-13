@@ -1,7 +1,7 @@
 import type { Builder } from './builder';
 import type { VortexGrowth, VortexRing } from './zones';
 import { COUNTDOWN, W } from './constants';
-import { chance, range, sign, shuffle, type Rng } from './rng';
+import { chance, mulberry32, range, sign, shuffle, type Rng } from './rng';
 import type { Sim } from './sim';
 import type { Segment } from './types';
 
@@ -12,6 +12,37 @@ interface Template {
   /** Not tested yet: shows in the section guide and the course builder, but random courses never pick it. */
   draft?: boolean;
   build(b: Builder, y0: number, rng: Rng): void;
+}
+
+/**
+ * A relay of hatches where one is always open: a random cell opens for a random `dur`, and `overlap`
+ * seconds before it starts closing a different random cell opens, so there's always a way through
+ * somewhere, but never in a predictable place. Returns each cell's open level (0-1) at sim time t; the
+ * schedule is drawn lazily from its own seeded rng, so it never runs out and replays match.
+ */
+function hatchRelay(seed: number, cells: number, dur: [number, number], overlap: number) {
+  const rng = mulberry32(seed);
+  const runs: { c: number; s: number; e: number }[] = [];
+  let next = -rng() * dur[0];
+  let last = -1;
+  return (c: number, t: number) => {
+    while (next < t + 1) {
+      // Any cell but the one that's closing.
+      let pick = Math.floor(rng() * (last < 0 ? cells : cells - 1));
+      if (last >= 0 && pick >= last) pick++;
+      const e = next + range(rng, dur[0], dur[1]);
+      runs.push({ c: pick, s: next, e });
+      last = pick;
+      next = e - overlap;
+    }
+    while (runs.length && runs[0].e < t - 1) runs.shift();
+    let level = 0;
+    for (const r of runs) {
+      if (r.c !== c || t < r.s || t > r.e) continue;
+      level = Math.max(level, Math.min(1, (t - r.s) / 0.2) * Math.min(1, (r.e - t) / 0.3));
+    }
+    return level;
+  };
 }
 
 /** Distance from point (px, py) to the segment (x1,y1)-(x2,y2). */
@@ -131,6 +162,10 @@ const FOOS_GOAL_TOP = 2.0 + 7 * FOOS_PITCH + 2.4;
 const FOOS_GOAL_DROP = 2.2;
 const FOOS_MOUTH = W / 3;
 const FOOS_NET = 1.6;
+/** Hatches per Trapdoor Floor floor (it was 2, all opening together; 4 was tried too). */
+const TRAPDOOR_CELLS = 3;
+/** How long each hatch in the relay stays open (s), picked at random each time. */
+const TRAPDOOR_OPEN: [number, number] = [1.2, 2.0];
 /** Black Hole section: the hole's centre (below the section's top), the bowl's radius around it, the horizon's radius. */
 const BH_CY = 8.5;
 const BH_BOWL = 7.4;
@@ -169,22 +204,21 @@ const TEMPLATES: Template[] = [
     name: 'TRAPDOOR FLOOR',
     h: 17.5,
     build(b, y0, rng) {
-      pegRows(b, rng, y0 + 1.2, 2, 1.6, 2.0);
-      // Two floors of two cells, each cell a pair of doors that open together like a hatch. The floors
-      // take turns: the whole top floor drops its batch onto the closed bottom floor, which opens half a
-      // period later while the top refills. An open door's tip hangs ~3.9 m below its hinge, so the bottom
-      // floor sits far enough under the top one that a swinging door never pinches a resting marble.
-      const period = range(rng, 4, 5);
-      const open = range(rng, 1.2, 1.5);
-      const phase = rng() * period;
-      const cw = W / 2;
-      [5.5, 11].forEach((dy, f) => {
+      // Nothing above the top floor (user's request): marbles drop straight onto the hatches.
+      // Two floors of TRAPDOOR_CELLS cells, each cell a pair of doors that open together like a hatch. On
+      // each floor one hatch is always open (a hatchRelay, user's request): which one, and for how long, is
+      // random, so a marble can get lucky and land on one just as it opens. The floor spacing was set for
+      // 4 m doors, whose tips hang ~3.9 m down; these are shorter, so a swinging door never pinches a
+      // resting marble.
+      const cw = W / TRAPDOOR_CELLS;
+      [5.5, 11].forEach((dy) => {
         const fy = y0 + dy;
-        const ph = phase - (f * period) / 2;
-        for (let c = 0; c < 2; c++) {
+        const relay = hatchRelay(Math.floor(rng() * 2 ** 32), TRAPDOOR_CELLS, TRAPDOOR_OPEN, 0.4);
+        for (let c = 0; c < TRAPDOOR_CELLS; c++) {
           const x0 = c * cw;
-          b.trapdoor(x0, fy, cw / 2, 1, period, open, ph);
-          b.trapdoor(x0 + cw, fy, cw / 2, -1, period, open, ph);
+          const level = (t: number) => relay(c, t);
+          b.hatch(x0, fy, cw / 2, 1, level);
+          b.hatch(x0 + cw, fy, cw / 2, -1, level);
           // A hump on the shared hinge, so nothing can sit on a pivot that never drops.
           if (c > 0) b.peg(x0, fy, 0.2);
         }
@@ -617,11 +651,10 @@ const FREEFALL_DRAG = 0.001;
 /** Rising boost pads: how fast they stream up (m/s, the slow end of the speed lines) and the seconds between spawns. */
 const FREEFALL_RISE = 20;
 const FREEFALL_GAP: [number, number] = [0.3, 0.7];
+/** A new pad stays out of the columns of pads spawned in the last this many seconds (~24 m above it). */
+const FREEFALL_CLEAR = 1.2;
 /** Widths of a rising boost pad (m), picked at random per pad: single or double (it was 1.4, then all 2.8). */
 const FREEFALL_PAD_WS = [1.4, 2.8];
-/** Event Horizon: the well's reach (m) and its pull at the horizon (m/s²). */
-const HORIZON_PULL = 4.6;
-const HORIZON_ACCEL = 36;
 
 export const FINISHES: Finish[] = [
   {
@@ -699,49 +732,10 @@ export const FINISHES: Finish[] = [
       b.sky(0, y + 0.2, W, FREEFALL_FINISH - 0.2, FREEFALL_SPEED, 0.012, 1.5, rng() * 6.3, FREEFALL_DRAG);
       // Boost pads stream up from 1 m above the line to 2 m below the top, appearing at random x
       // along the bottom: about 2 boosts per marble.
-      b.risers(0, y + 2, W, FREEFALL_FINISH - 3, FREEFALL_PAD_WS, 0.6, FREEFALL_RISE, FREEFALL_BOOST, FREEFALL_GAP, Math.floor(rng() * 2 ** 32));
+      b.risers(0, y + 2, W, FREEFALL_FINISH - 3, FREEFALL_PAD_WS, 0.6, FREEFALL_RISE, FREEFALL_BOOST, FREEFALL_GAP, FREEFALL_CLEAR, Math.floor(rng() * 2 ** 32));
       // Basin.
       b.wall(0, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
       b.wall(W, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
-    },
-  },
-  {
-    // A deep bowl with a black hole hanging over its lowest point: the horizon is the way to the finish line,
-    // throwing each marble it swallows out into the basin below the line. A Λ roof sends everyone out to the
-    // walls, so every marble swings in from the side. Fast ones swing past the hole (the well bends them
-    // around it) and up the far side, while a slower one behind can drop straight in. At the bottom of the
-    // bowl the pull beats gravity, so nothing can sit there: it gets lifted into the hole.
-    id: 'horizon',
-    name: 'EVENT HORIZON',
-    h: 14,
-    finish: 9.8,
-    draft: true,
-    build(b, y, rng) {
-      // Same roof as the half-pipe: starts 1.6 m down, clear of the last segment, and outside the well.
-      b.wall(8, y + 1.6, 3.2, y + 3.4);
-      b.wall(8, y + 1.6, W - 3.2, y + 3.4);
-      // The bowl: a parabola from the walls (y + 4) down to the middle (y + 9).
-      const bottom = y + 9;
-      const depth = 5;
-      const n = 10;
-      for (const s of [1, -1]) {
-        const X = (x: number) => (s > 0 ? x : W - x);
-        let px = 0;
-        let py = bottom - depth;
-        for (let i = 1; i <= n; i++) {
-          const u = 1 - i / n; // 1 at the wall, 0 in the middle
-          const x = (W / 2) * (1 - u);
-          const yy = bottom - depth * u * u;
-          b.wall(X(px), py, X(x), yy);
-          px = x;
-          py = yy;
-        }
-      }
-      // A marble resting at the bottom sits 1.5 m under the centre, where the pull (~24 m/s²) beats gravity.
-      b.blackHole(W / 2, y + 7, 0.8, HORIZON_PULL, HORIZON_ACCEL, sign(rng) * 0.6, W / 2, y + 10.6);
-      // Basin under the line.
-      b.wall(0, y + 11.8, 8, y + 13.5);
-      b.wall(W, y + 11.8, 8, y + 13.5);
     },
   },
 ];

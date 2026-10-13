@@ -666,6 +666,8 @@ export class RiserZone {
     public rise: number,
     public vy: number,
     private gap: [number, number],
+    /** A new pad avoids the columns of pads spawned less than this many seconds before it. */
+    private clear: number,
     private rng: Rng,
   ) {
     this.minY = y;
@@ -678,8 +680,17 @@ export class RiserZone {
     // Centres are spread over the full width and the pad is then pushed back inside, so pads sit flush
     // against a wall often enough that marbles riding the wall meet as many as marbles in the middle.
     const w = this.padWs[Math.floor(this.rng() * this.padWs.length)];
-    const x = Math.min(Math.max(this.rng() * this.w - w / 2, 0), this.w - w);
-    this.pads.push({ x: this.x + x, y: this.y + this.h - this.rise * age, w, flash: 0, boosted: new Set() });
+    const y = this.y + this.h - this.rise * age;
+    // Stay out of the columns of recent pads (those less than `clear` seconds above), with a 0.3 m margin,
+    // so a marble doesn't meet one pad right after another in the same lane. Up to 8 tries; the room is
+    // wide enough that it almost never runs out.
+    const recent = this.pads.filter((p) => y - p.y < this.rise * this.clear);
+    let x = 0;
+    for (let i = 0; i < 8; i++) {
+      x = this.x + Math.min(Math.max(this.rng() * this.w - w / 2, 0), this.w - w);
+      if (!recent.some((p) => x < p.x + p.w + 0.3 && p.x < x + w + 0.3)) break;
+    }
+    this.pads.push({ x, y, w, flash: 0, boosted: new Set() });
     this.next += range(this.rng, this.gap[0], this.gap[1]);
   }
   contains(px: number, py: number) {
