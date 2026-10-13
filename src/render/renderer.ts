@@ -4,6 +4,9 @@ import type { Marble, Sim } from '../sim/sim';
 import type { SimEvent, Visual } from '../sim/types';
 import type { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, Zone } from '../sim/zones';
 import { Confetti, Fx } from './fx';
+
+/** Free-fall speed (m/s): a marble going faster than this has just hit a boost pad and gets a nitro flame. */
+const CRUISE = 3;
 import { BG, BG_BAND, BLACKHOLE, BOOST, FAN, HAZARD, HELP, HURT, LIFT, PORTAL_BACK, PORTAL_FWD, SKY, STEEL, STYLE } from './palette';
 
 interface MarbleView {
@@ -141,6 +144,8 @@ export class Renderer {
   zoom = 1;
   camX = W / 2;
   camY = 0;
+  /** The vortex the camera is holding on while the target orbits inside it. */
+  private vortex: BlackHoleZone | null = null;
   private shake = 0;
   private time = 0;
 
@@ -539,11 +544,26 @@ export class Renderer {
       zoomTarget = Math.max(1, Math.min(zoomTarget, fitX, fitY));
     }
 
+    // While the target orbits a vortex, hold still on the hole and zoom out to fit the whole well, instead
+    // of bobbing up and down with the marble. It holds until the marble is 1 m past the edge of the well
+    // (or swallowed), so it doesn't flicker at the edge.
+    const inWell = (z: BlackHoleZone, extra: number) => target && Math.hypot(target.x - z.x, target.y - z.y) < z.pull + extra;
+    if (this.vortex && !inWell(this.vortex, 1)) this.vortex = null;
+    if (!this.vortex && target) {
+      this.vortex = (sim.zones.find((z) => z.kind === 'blackhole' && z.vortex && inWell(z, 0)) as BlackHoleZone | undefined) ?? null;
+    }
+    const hole = this.vortex;
+    if (hole) {
+      fx = W / 2;
+      zoomTarget = Math.min(zoomTarget, viewH / ((hole.pull + 0.8) * 2) / base);
+    }
+
     this.zoom += (zoomTarget - this.zoom) * (1 - Math.exp(-dt * 3));
     const s = base * this.zoom;
     this.scale = s;
 
-    const ty = target ? target.y : sim.gateY - 1;
+    // camY is the world y at the anchor; put the hole at the middle of the view.
+    const ty = hole ? hole.y - (viewH * (0.5 - anchor)) / s : target ? target.y : sim.gateY - 1;
     this.camY += (ty - this.camY) * (1 - Math.exp(-dt * 5));
     const maxCam = sim.bottomY + 0.5 - (viewH * (1 - anchor)) / s;
     const minCam = sim.topY + (viewH * anchor) / s;
@@ -613,7 +633,10 @@ export class Renderer {
         tr.push(m.x, m.y);
         if (tr.length > 24) tr.splice(0, 2);
       }
-      if (tr.length >= 4 && !m.finished) {
+      // In free fall the trail gives way to wind streaks and a nitro flame (on the trail layer, under the marbles).
+      const sky = !m.finished && sim.zones.some((z) => z.kind === 'sky' && z.contains(m.x, m.y));
+      if (sky) this.drawSlipstream(trail, m);
+      else if (tr.length >= 4 && !m.finished) {
         trail.moveTo(tr[0], tr[1]);
         for (let i = 2; i < tr.length; i += 2) trail.lineTo(tr[i], tr[i + 1]);
         trail.stroke({ width: MARBLE_R * 1.1, color: m.color, alpha: 0.22, cap: 'round', join: 'round' });
@@ -640,6 +663,48 @@ export class Renderer {
       mv.label.style.fill = m.idx === followIdx ? 0xffe066 : 0xffffff;
       mv.label.alpha = m.finished && sim.winner !== m ? 0.45 : 1;
     }
+  }
+
+  /**
+   * A marble in free fall, drawn like a race car: wind streaks peel off its sides and stream away behind it,
+   * and after a boost pad, a flickering nitro flame shoots out behind it, shrinking as it slows back down.
+   */
+  private drawSlipstream(g: Graphics, m: Marble) {
+    const v = m.body.linvel();
+    const speed = Math.hypot(v.x, v.y);
+    // "Behind" is opposite the marble's motion; a marble at rest streams straight up.
+    const bx = speed > 0.1 ? -v.x / speed : 0;
+    const by = speed > 0.1 ? -v.y / speed : -1;
+    const px = -by;
+    const py = bx;
+    const t = this.time;
+
+    // Wind streaks: five thin lines from around the marble's back edge, each flickering in length.
+    for (let k = 0; k < 5; k++) {
+      const off = (k - 2) * 0.13;
+      const flick = 0.5 + 0.5 * Math.sin(t * 23 + m.idx * 2.3 + k * 1.9);
+      const len = (0.9 + Math.min(speed, 10) * 0.12) * (0.55 + 0.45 * flick) * (k === 2 ? 0.7 : 1);
+      const sx = m.x + px * off + bx * MARBLE_R * 0.6;
+      const sy = m.y + py * off + by * MARBLE_R * 0.6;
+      g.moveTo(sx, sy)
+        .lineTo(sx + bx * len + px * off * 0.6, sy + by * len + py * off * 0.6)
+        .stroke({ width: 0.035, color: 0xffffff, alpha: 0.18 + 0.2 * flick, cap: 'round' });
+    }
+
+    // Nitro: a flame cone whose length follows the speed above cruising.
+    const boost = Math.min(1, Math.max(0, (speed - CRUISE) / 6));
+    if (boost <= 0) return;
+    const flick = 0.85 + 0.15 * Math.sin(t * 47 + m.idx * 3.1);
+    const cone = (len: number, half: number, color: number, alpha: number) => {
+      const ox = m.x + bx * MARBLE_R * 0.7;
+      const oy = m.y + by * MARBLE_R * 0.7;
+      g.poly([ox + px * half, oy + py * half, ox + bx * len, oy + by * len, ox - px * half, oy - py * half])
+        .fill({ color, alpha });
+    };
+    const L = (0.6 + 2.2 * boost) * flick;
+    cone(L, MARBLE_R * 0.85, 0xff5a1f, 0.55 * boost + 0.15);
+    cone(L * 0.7, MARBLE_R * 0.6, 0xffc23d, 0.7 * boost + 0.2);
+    cone(L * 0.38, MARBLE_R * 0.35, 0xbfe6ff, 0.9);
   }
 
   // ---- zones ----------------------------------------------------------------
@@ -695,12 +760,12 @@ export class Renderer {
 
   /** Boost pads rushing up through the free fall, each with a fading streak below it like the speed lines. */
   private drawRiser(g: Graphics, z: RiserZone, anim: number) {
-    const w = z.padW;
     const h = z.padH;
-    // A column of chevrons per 1.4 m of pad width, and a trail streak at each edge and between columns.
-    const cols = Math.max(1, Math.round(w / 1.4));
-    const streaks = cols * 2 + 1;
     for (const p of z.pads) {
+      // A column of chevrons per 1.4 m of pad width, and a trail streak at each edge and between columns.
+      const w = p.w;
+      const cols = Math.max(1, Math.round(w / 1.4));
+      const streaks = cols * 2 + 1;
       const top = Math.max(z.y, p.y);
       const bot = Math.min(z.y + z.h, p.y + h);
       if (bot <= top) continue;
@@ -882,7 +947,14 @@ export class Renderer {
     const spin = Math.sign(z.swirl) || 1;
     // Faint edge of the well, so you can see the reach of its pull.
     g.circle(0, 0, pull).fill({ color: BLACKHOLE, alpha: 0.04 }).stroke({ width: 0.03 * S, color: BLACKHOLE, alpha: 0.22 });
-    g.circle(0, 0, pull * 0.6).fill({ color: BLACKHOLE, alpha: 0.05 });
+    if (z.vortex) {
+      // Each inner ring of a vortex: a darker disc with a faint edge, so the zones read as tiers.
+      for (const ring of z.rings.slice(1)) {
+        g.circle(0, 0, ring.r * S).fill({ color: BLACKHOLE, alpha: 0.07 }).stroke({ width: 0.03 * S, color: 0xffb347, alpha: 0.25 });
+      }
+    } else {
+      g.circle(0, 0, pull * 0.6).fill({ color: BLACKHOLE, alpha: 0.05 });
+    }
     // Streaks of matter spiralling in from the edge of the well, each a short curved trail.
     for (let k = 0; k < 16; k++) {
       const seed = Math.sin(k * 12.9898) * 43758.5453;

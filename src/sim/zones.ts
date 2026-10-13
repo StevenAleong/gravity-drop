@@ -272,7 +272,8 @@ export interface Track {
  * Black hole: a backward portal (the event horizon, radius `r`) inside a gravity well of radius `pull`.
  * Inside the well marbles are pulled toward the centre (stronger the closer they get) and swirled
  * around it, so they curve, slow down and sometimes slingshot past. Cross the horizon and you're
- * thrown out at the exit. Optionally drifts along a `Track`.
+ * thrown out at the exit. Optionally drifts along a `Track`. With a `Vortex` the well works differently:
+ * see there.
  */
 export class BlackHoleZone {
   readonly kind = 'blackhole' as const;
@@ -283,6 +284,12 @@ export class BlackHoleZone {
   readonly minY: number;
   readonly maxY: number;
   private len = 0;
+  /** A vortex's rings as they are now (the innermost one grows; see VortexGrowth). */
+  rings: VortexRing[] = [];
+  /** How far the innermost ring has grown, 0-1. */
+  growth = 0;
+  private growing = false;
+  private lastInside = -Infinity;
   constructor(
     x: number,
     y: number,
@@ -295,6 +302,7 @@ export class BlackHoleZone {
     public bx: number,
     public by: number,
     private track?: Track,
+    public vortex?: Vortex,
   ) {
     this.x = track ? track.x0 : x;
     this.y = track ? track.y0 : y;
@@ -302,6 +310,7 @@ export class BlackHoleZone {
     this.minY = Math.min(...ys) - pull;
     this.maxY = Math.max(...ys) + pull;
     if (track) this.len = Math.hypot(track.x1 - track.x0, track.y1 - track.y0);
+    if (vortex) this.rings = vortex.rings.map((r) => ({ ...r }));
   }
   contains(px: number, py: number) {
     const dx = px - this.x;
@@ -310,6 +319,16 @@ export class BlackHoleZone {
   }
   update(t: number) {
     this.flash *= 0.95;
+    const g = this.vortex?.grow;
+    if (g) {
+      // Grow once something has been swallowed; shrink back once the well has been empty for `idle` s.
+      if (t - this.lastInside > g.idle) this.growing = false;
+      this.growth = Math.min(1, Math.max(0, this.growth + ((this.growing ? 1 : -1) * DT) / g.time));
+      const base = this.vortex!.rings[this.rings.length - 1];
+      const live = this.rings[this.rings.length - 1];
+      live.r = base.r + (g.r - base.r) * this.growth;
+      live.accel = base.accel + (g.accel - base.accel) * this.growth;
+    }
     const k = this.track;
     if (!k) return;
     const u = sweep({ x0: 0, x1: this.len, speed: k.speed, phase: k.phase }, t) / this.len;
@@ -320,22 +339,105 @@ export class BlackHoleZone {
     const dx = this.x - m.x;
     const dy = this.y - m.y;
     const d = Math.hypot(dx, dy);
+    this.lastInside = sim.t;
     if (d < this.r) {
       if (sim.coolingDown(m, this, 1.5)) return;
+      this.growing = true;
       const fromX = m.x;
       const fromY = m.y;
       sim.teleport(m, this.bx, this.by, 0.2);
       this.flash = 1;
-      sim.emit({ type: 'portal', marble: m.idx, forward: false, hole: true, fromX, fromY, x: this.bx, y: this.by });
+      sim.emit({ type: 'portal', marble: m.idx, forward: this.by > this.y, hole: true, fromX, fromY, x: this.bx, y: this.by });
+      return;
+    }
+    const ux = dx / d;
+    const uy = dy / d;
+    const mass = m.body.mass();
+    const vx = this.vortex;
+    if (vx) {
+      // The speed around the centre eases toward the ring's spin, in whichever direction the marble is
+      // already going round, so it keeps the line it came in on.
+      const { accel, spin, ease, grav } = vortexAt(this.rings, vx.blend, d);
+      const k = accel * mass * DT;
+      const v = m.body.linvel();
+      const vt = v.y * ux - v.x * uy; // speed around the centre, + = the (-uy, ux) direction
+      const s = Math.sign(vt) || Math.sign(this.swirl) || 1;
+      const tx = -uy * s;
+      const ty = ux * s;
+      const dv = (spin - vt * s) * ease * mass;
+      const lift = GRAVITY * (1 - grav) * mass * DT;
+      m.body.applyImpulse({ x: ux * k + tx * dv, y: uy * k + ty * dv - lift }, true);
       return;
     }
     const f = 1 - (d - this.r) / (this.pull - this.r);
     const a = this.accel * f * f;
-    const k = a * m.body.mass() * DT;
-    const ux = dx / d;
-    const uy = dy / d;
+    const k = a * mass * DT;
     m.body.applyImpulse({ x: (ux - uy * this.swirl) * k, y: (uy + ux * this.swirl) * k }, true);
   }
+}
+
+/**
+ * A black hole that marbles orbit before falling in, built from rings, outermost first. Each ring has its
+ * own pull (m/s², toward the centre) and eases each marble's speed around the centre toward its `spin`
+ * (m/s), in whichever direction the marble is already going round, so marbles orbit both ways and meet
+ * head-on. Neighbouring rings blend over `blend` m, so crossing from one to the next is never a jolt.
+ * Instead of a swirl force that would keep adding speed, the spin is a target, and it must stay under the
+ * ring's orbit speed √(accel · r), or marbles could orbit forever.
+ */
+export interface Vortex {
+  rings: VortexRing[];
+  blend: number;
+  grow?: VortexGrowth;
+}
+
+/**
+ * The innermost ring starts as given and, once the hole swallows its first marble, grows over `time`
+ * seconds to radius `r` with pull `accel`, so the marbles still orbiting get pulled in sooner and sooner.
+ * It shrinks back at the same rate once the well has been empty for `idle` seconds. Growth is counted in
+ * sim time, so it's the same however many marbles race.
+ */
+export interface VortexGrowth {
+  r: number;
+  accel: number;
+  time: number;
+  idle: number;
+}
+
+export interface VortexRing {
+  /** Outer radius; the ring runs in to the next ring's radius (or the horizon). */
+  r: number;
+  /** Pull at the outer radius; it grows as r/d inward, so the orbit speed √(accel · r) is the same across the ring. */
+  accel: number;
+  spin: number;
+  /** Fraction of the gap to `spin` closed per step (0: no spin in this ring). */
+  ease: number;
+  /**
+   * How much normal gravity is left in this ring (1: all of it, 0: none). Gravity squashes every orbit
+   * (it adds to the pull above the hole and takes from it below), so orbits dive in on their first pass.
+   */
+  grav: number;
+}
+
+const OUTSIDE: VortexRing = { r: Infinity, accel: 0, spin: 0, ease: 0, grav: 1 };
+
+/** The pull and spin at distance `d`: the ring it's in, blended with the ring outside it near the border. */
+export function vortexAt(rings: VortexRing[], blend: number, d: number): Omit<VortexRing, 'r'> {
+  let i = 0;
+  while (i + 1 < rings.length && d < rings[i + 1].r) i++;
+  const a = rings[i];
+  const accel = (a.accel * a.r) / d;
+  // Within `blend` inside this ring's outer edge, mix in the ring outside it (or, for the outermost ring,
+  // plain space: no pull or spin and full gravity, so the field fades in at its edge).
+  const out = rings[i - 1] ?? OUTSIDE;
+  const t = Math.min(1, (a.r - d) / blend);
+  if (t >= 1) return { accel, spin: a.spin, ease: a.ease, grav: a.grav };
+  const outAccel = out === OUTSIDE ? 0 : (out.accel * out.r) / d;
+  return {
+    accel: outAccel + (accel - outAccel) * t,
+    spin: out.spin + (a.spin - out.spin) * t,
+    ease: out.ease + (a.ease - out.ease) * t,
+    grav: out.grav + (a.grav - out.grav) * t,
+  };
 }
 
 /**
@@ -532,7 +634,11 @@ export class SkyZone {
 export interface RisingPad {
   x: number;
   y: number;
+  /** Width, picked from the zone's `padWs` when it spawns. */
+  w: number;
   flash: number;
+  /** Marbles this pad has already boosted (each pad boosts a marble once). */
+  boosted: Set<number>;
 }
 
 /**
@@ -540,8 +646,8 @@ export interface RisingPad {
  * appears at a random x along the bottom edge and rises at `rise` m/s until it leaves the top. A marble
  * that a pad passes through is shot downward at `vy`, keeping its sideways speed. Because the pads rush
  * past much faster than marbles fall, how many a marble meets hardly depends on its own speed, so one
- * boost doesn't make the next one more likely. Spawns come from the zone's own seeded rng, so a seed
- * replays the same pads.
+ * boost doesn't make the next one more likely. Each pad's width is picked at random from `padWs`. Spawns
+ * come from the zone's own seeded rng, so a seed replays the same pads.
  */
 export class RiserZone {
   readonly kind = 'riser' as const;
@@ -555,12 +661,11 @@ export class RiserZone {
     public y: number,
     public w: number,
     public h: number,
-    public padW: number,
+    public padWs: number[],
     public padH: number,
     public rise: number,
     public vy: number,
     private gap: [number, number],
-    private cooldown: number,
     private rng: Rng,
   ) {
     this.minY = y;
@@ -572,8 +677,9 @@ export class RiserZone {
   private spawn(age: number) {
     // Centres are spread over the full width and the pad is then pushed back inside, so pads sit flush
     // against a wall often enough that marbles riding the wall meet as many as marbles in the middle.
-    const x = Math.min(Math.max(this.rng() * this.w - this.padW / 2, 0), this.w - this.padW);
-    this.pads.push({ x: this.x + x, y: this.y + this.h - this.rise * age, flash: 0 });
+    const w = this.padWs[Math.floor(this.rng() * this.padWs.length)];
+    const x = Math.min(Math.max(this.rng() * this.w - w / 2, 0), this.w - w);
+    this.pads.push({ x: this.x + x, y: this.y + this.h - this.rise * age, w, flash: 0, boosted: new Set() });
     this.next += range(this.rng, this.gap[0], this.gap[1]);
   }
   contains(px: number, py: number) {
@@ -589,8 +695,11 @@ export class RiserZone {
     while (this.next <= this.time) this.spawn(this.time - this.next);
   }
   affect(m: Marble, sim: Sim) {
-    const pad = this.pads.find((p) => m.x >= p.x && m.x <= p.x + this.padW && m.y >= p.y && m.y <= p.y + this.padH);
-    if (!pad || sim.coolingDown(m, this, this.cooldown)) return;
+    const pad = this.pads.find((p) => m.x >= p.x && m.x <= p.x + p.w && m.y >= p.y && m.y <= p.y + this.padH);
+    // Each pad boosts a marble once, but a different pad boosts it again even mid-boost, restarting it
+    // from full speed, so running over pads back to back keeps the boost going.
+    if (!pad || pad.boosted.has(m.idx)) return;
+    pad.boosted.add(m.idx);
     m.body.setLinvel({ x: m.body.linvel().x, y: this.vy }, true);
     pad.flash = 1;
     sim.emit({ type: 'boost', marble: m.idx, x: m.x, y: m.y });

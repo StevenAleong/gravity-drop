@@ -1,4 +1,5 @@
 import type { Builder } from './builder';
+import type { VortexGrowth, VortexRing } from './zones';
 import { COUNTDOWN, W } from './constants';
 import { chance, range, sign, shuffle, type Rng } from './rng';
 import type { Sim } from './sim';
@@ -8,6 +9,8 @@ interface Template {
   id: string;
   name: string;
   h: number;
+  /** Not tested yet: shows in the section guide and the course builder, but random courses never pick it. */
+  draft?: boolean;
   build(b: Builder, y0: number, rng: Rng): void;
 }
 
@@ -128,6 +131,28 @@ const FOOS_GOAL_TOP = 2.0 + 7 * FOOS_PITCH + 2.4;
 const FOOS_GOAL_DROP = 2.2;
 const FOOS_MOUTH = W / 3;
 const FOOS_NET = 1.6;
+/** Black Hole section: the hole's centre (below the section's top), the bowl's radius around it, the horizon's radius. */
+const BH_CY = 8.5;
+const BH_BOWL = 7.4;
+const BH_R = 1.0;
+/**
+ * Its two rings (see Vortex). Orbit ring, out to the bowl: almost no normal gravity, so orbits stay round
+ * and spiral in slowly instead of diving in on their first pass, and the pull at the floor (~16.6 m/s²)
+ * easily beats what's left of gravity, so nothing can rest there. Inner: a strong pull and a low spin, so
+ * reaching it means getting sucked in. Each spin stays under its ring's orbit speed √(accel · r) (10.7 m/s
+ * in the orbit ring), so orbits decay.
+ */
+const BH_RINGS: VortexRing[] = [
+  { r: BH_BOWL + 0.3, accel: 15, spin: 10.4, ease: 0.04, grav: 0.1 },
+  { r: 1.3, accel: 70, spin: 4, ease: 0.05, grav: 0 },
+];
+/**
+ * The inner ring starts small and weak, and grows to this once the hole swallows its first marble (see
+ * VortexGrowth): out to 75% of the orbit ring's radius in 5 s. Its pull at that edge is only 55 m/s² (the
+ * orbit ring's is ~20 there), as the pull grows as r/d inward: that's still ~310 m/s² by the horizon.
+ */
+const BH_GROW: VortexGrowth = { r: (BH_BOWL + 0.3) * 0.75, accel: 55, time: 5, idle: 3 };
+const BH_BLEND = 0.8;
 
 const TEMPLATES: Template[] = [
   {
@@ -436,6 +461,28 @@ const TEMPLATES: Template[] = [
       b.net(x1, x2, mouth, FOOS_NET);
     },
   },
+  {
+    // One big black hole (a Vortex) whose well fills the whole width. Its lower half is a round bowl
+    // centred on the hole, so the floor follows the field and nothing can roll out of reach; the top is
+    // open, so a marble can fall straight in. Marbles get dragged around the hole, roll round the bowl, lift
+    // off it, collide and spiral into the horizon, then drop out of the bottom and carry on.
+    id: 'blackhole',
+    name: 'BLACK HOLE',
+    h: BH_CY + BH_BOWL + 3.1,
+    build(b, y0, rng) {
+      const cy = y0 + BH_CY;
+      const n = 16;
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI;
+        const a1 = ((i + 1) / n) * Math.PI;
+        b.wall(W / 2 + BH_BOWL * Math.cos(a0), cy + BH_BOWL * Math.sin(a0), W / 2 + BH_BOWL * Math.cos(a1), cy + BH_BOWL * Math.sin(a1));
+      }
+      // The bowl's rims stop short of the walls: close the gaps with ramps from the walls.
+      b.wall(0, cy - 1.2, W / 2 - BH_BOWL, cy);
+      b.wall(W, cy - 1.2, W / 2 + BH_BOWL, cy);
+      b.vortex(W / 2, cy, BH_R, BH_BOWL + 0.3, 0, sign(rng), W / 2, cy + BH_BOWL + 1.6, { rings: BH_RINGS, blend: BH_BLEND, grow: BH_GROW });
+    },
+  },
 ];
 
 /** Height of the funnel inserted after each segment when funnels are on. */
@@ -531,7 +578,7 @@ function pickSegments(rng: Rng, count: number): Template[] {
   let pool: Template[] = [];
   while (out.length < count) {
     if (pool.length === 0) {
-      pool = shuffle(rng, TEMPLATES.slice());
+      pool = shuffle(rng, TEMPLATES.filter((t) => !t.draft));
       if (out.length && pool[0] === out[out.length - 1]) pool.push(pool.shift()!);
     }
     out.push(pool.shift()!);
@@ -554,6 +601,8 @@ interface Finish {
   h: number;
   /** Finish line, measured down from the top of the finish. */
   finish: number;
+  /** Not tested yet: shows in the section guide, but random courses never pick it. */
+  draft?: boolean;
   build(b: Builder, y0: number, rng: Rng): void;
 }
 
@@ -568,8 +617,11 @@ const FREEFALL_DRAG = 0.001;
 /** Rising boost pads: how fast they stream up (m/s, the slow end of the speed lines) and the seconds between spawns. */
 const FREEFALL_RISE = 20;
 const FREEFALL_GAP: [number, number] = [0.3, 0.7];
-/** Width of a rising boost pad (m). It was 1.4; the user doubled it. */
-const FREEFALL_PAD_W = 2.8;
+/** Widths of a rising boost pad (m), picked at random per pad: single or double (it was 1.4, then all 2.8). */
+const FREEFALL_PAD_WS = [1.4, 2.8];
+/** Event Horizon: the well's reach (m) and its pull at the horizon (m/s²). */
+const HORIZON_PULL = 4.6;
+const HORIZON_ACCEL = 36;
 
 export const FINISHES: Finish[] = [
   {
@@ -647,10 +699,49 @@ export const FINISHES: Finish[] = [
       b.sky(0, y + 0.2, W, FREEFALL_FINISH - 0.2, FREEFALL_SPEED, 0.012, 1.5, rng() * 6.3, FREEFALL_DRAG);
       // Boost pads stream up from 1 m above the line to 2 m below the top, appearing at random x
       // along the bottom: about 2 boosts per marble.
-      b.risers(0, y + 2, W, FREEFALL_FINISH - 3, FREEFALL_PAD_W, 0.6, FREEFALL_RISE, FREEFALL_BOOST, FREEFALL_GAP, 0.8, Math.floor(rng() * 2 ** 32));
+      b.risers(0, y + 2, W, FREEFALL_FINISH - 3, FREEFALL_PAD_WS, 0.6, FREEFALL_RISE, FREEFALL_BOOST, FREEFALL_GAP, Math.floor(rng() * 2 ** 32));
       // Basin.
       b.wall(0, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
       b.wall(W, y + FREEFALL_FINISH + 2.0, 8, y + FREEFALL_FINISH + 3.7);
+    },
+  },
+  {
+    // A deep bowl with a black hole hanging over its lowest point: the horizon is the way to the finish line,
+    // throwing each marble it swallows out into the basin below the line. A Λ roof sends everyone out to the
+    // walls, so every marble swings in from the side. Fast ones swing past the hole (the well bends them
+    // around it) and up the far side, while a slower one behind can drop straight in. At the bottom of the
+    // bowl the pull beats gravity, so nothing can sit there: it gets lifted into the hole.
+    id: 'horizon',
+    name: 'EVENT HORIZON',
+    h: 14,
+    finish: 9.8,
+    draft: true,
+    build(b, y, rng) {
+      // Same roof as the half-pipe: starts 1.6 m down, clear of the last segment, and outside the well.
+      b.wall(8, y + 1.6, 3.2, y + 3.4);
+      b.wall(8, y + 1.6, W - 3.2, y + 3.4);
+      // The bowl: a parabola from the walls (y + 4) down to the middle (y + 9).
+      const bottom = y + 9;
+      const depth = 5;
+      const n = 10;
+      for (const s of [1, -1]) {
+        const X = (x: number) => (s > 0 ? x : W - x);
+        let px = 0;
+        let py = bottom - depth;
+        for (let i = 1; i <= n; i++) {
+          const u = 1 - i / n; // 1 at the wall, 0 in the middle
+          const x = (W / 2) * (1 - u);
+          const yy = bottom - depth * u * u;
+          b.wall(X(px), py, X(x), yy);
+          px = x;
+          py = yy;
+        }
+      }
+      // A marble resting at the bottom sits 1.5 m under the centre, where the pull (~24 m/s²) beats gravity.
+      b.blackHole(W / 2, y + 7, 0.8, HORIZON_PULL, HORIZON_ACCEL, sign(rng) * 0.6, W / 2, y + 10.6);
+      // Basin under the line.
+      b.wall(0, y + 11.8, 8, y + 13.5);
+      b.wall(W, y + 11.8, 8, y + 13.5);
     },
   },
 ];
@@ -754,7 +845,8 @@ export function buildCourse(sim: Sim, b: Builder, rng: Rng, opts: CourseOptions)
   // The finish, picked from the seed unless the player chose one. The rng value is drawn either way, so a
   // seed builds the same course whichever finish it gets.
   const roll = rng();
-  const finish = FINISHES.find((f) => f.id === finishId) ?? FINISHES[Math.floor(roll * FINISHES.length)];
+  const ready = FINISHES.filter((f) => !f.draft);
+  const finish = FINISHES.find((f) => f.id === finishId) ?? ready[Math.floor(roll * ready.length)];
   sim.segments.push({ name: `FINISH · ${finish.name}`, y0: y, h: finish.h });
   finish.build(b, y, rng);
   sim.finishY = y + finish.finish;

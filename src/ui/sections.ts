@@ -30,6 +30,10 @@ const ABOUT: Record<string, string> = {
   'segment:pinball': 'A pinball table: big pop bumpers that kick marbles away, then a funnel down to two flippers over a narrow drain, with slingshots in front of them. A lucky marble can slip down an outlane by the wall and skip the flippers.',
   'segment:foosball':
     'A foosball table: eight rods of black and yellow players that slide from wall to wall and kick. The feet bat marbles sideways, and while a rod is away from a wall, a lucky marble can slip straight down the side. At the bottom, everyone is funnelled into the goal.',
+  'segment:blackhole':
+    'A huge black hole over a round bowl, where normal gravity fades away. Marbles orbit the hole whichever way they came in, crashing into each other as they spiral down. Reach the inner ring and you get sucked in. The inner ring starts small, and once the hole swallows its first marble it keeps growing, so the first ones in can circle for ages while the ones behind get pulled straight through.',
+  'finish:horizon':
+    'A deep bowl with a black hole hanging over the middle. The only way to the finish line is through the event horizon. Swing in too fast and the hole slingshots you around and up the far side, while a slower marble drops straight in.',
   'finish:funnel':
     'A funnel with slingshots on its walls and a flipper at the bottom of each one, down to the finish line.',
   'finish:halfpipe':

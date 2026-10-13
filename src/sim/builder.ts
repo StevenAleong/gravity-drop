@@ -3,7 +3,7 @@ import { NO_GROUPS, W } from './constants';
 import type { Sim } from './sim';
 import { mulberry32, range, type Rng } from './rng';
 import type { VisualStyle } from './types';
-import { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, type BeltOpts, type Patrol, type Track } from './zones';
+import { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, type BeltOpts, type Patrol, type Track, type Vortex } from './zones';
 
 const HALF_PI = Math.PI / 2;
 
@@ -477,8 +477,8 @@ export class Builder {
   }
 
   /** Downward boost pads that stream up through the rectangle (see RiserZone), spawned from their own seeded rng. */
-  risers(x: number, y: number, w: number, h: number, padW: number, padH: number, rise: number, vy: number, gap: [number, number], cooldown: number, seed: number) {
-    this.sim.zones.push(new RiserZone(x, y, w, h, padW, padH, rise, vy, gap, cooldown, mulberry32(seed)));
+  risers(x: number, y: number, w: number, h: number, padWs: number[], padH: number, rise: number, vy: number, gap: [number, number], seed: number) {
+    this.sim.zones.push(new RiserZone(x, y, w, h, padWs, padH, rise, vy, gap, mulberry32(seed)));
   }
 
   portal(
@@ -497,5 +497,10 @@ export class Builder {
   /** Black hole at (x, y), or drifting along `track`; swallowed marbles come out at (bx, by). See BlackHoleZone. */
   blackHole(x: number, y: number, r: number, pull: number, accel: number, swirl: number, bx: number, by: number, track?: Track) {
     this.sim.zones.push(new BlackHoleZone(x, y, r, pull, accel, swirl, bx, by, track));
+  }
+
+  /** Black hole that marbles orbit before falling in; see Vortex. `swirl` only sets the spin direction (its sign). */
+  vortex(x: number, y: number, r: number, pull: number, accel: number, swirl: number, bx: number, by: number, vortex: Vortex) {
+    this.sim.zones.push(new BlackHoleZone(x, y, r, pull, accel, swirl, bx, by, undefined, vortex));
   }
 }
