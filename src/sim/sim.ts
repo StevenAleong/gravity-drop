@@ -319,7 +319,10 @@ export class Sim {
     }
 
     for (const o of this.obstacles) o.update(t);
-    for (const z of this.zones) z.update(t);
+    for (const z of this.zones) {
+      z.update(t);
+      if (z.kind === 'blast') for (const b of z.fired) this.emit({ type: 'blast', x: b.x, y: b.y, r: b.r });
+    }
     for (const m of this.marbles) this.preStep(m);
 
     this.world.step(this.eq);

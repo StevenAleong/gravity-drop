@@ -34,3 +34,5 @@ export const BOOST = 0xfff36b;
 export const HAZARD = 0xffc21a;
 export const STEEL = 0x8a93b8;
 export const SKY = 0xbfe6ff;
+export const MINE = 0xff4d2e;
+export const MINE_HOT = 0xffc23d;

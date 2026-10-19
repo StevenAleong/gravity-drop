@@ -9,3 +9,4 @@ export const COUNTDOWN = 5;
 export const LIFT_SPEED = 7;
 export const ALL_GROUPS = 0xffffffff;
 export const NO_GROUPS = 0x00000000;
+export const HALF_PI = Math.PI / 2;

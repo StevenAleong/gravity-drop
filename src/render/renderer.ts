@@ -2,12 +2,12 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import { LIFT_SPEED, MARBLE_R, W } from '../sim/constants';
 import type { Marble, Sim } from '../sim/sim';
 import type { SimEvent, Visual } from '../sim/types';
-import type { BlackHoleZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, Zone } from '../sim/zones';
+import type { BlackHoleZone, BlastZone, BoosterZone, ConveyorZone, FanZone, LiftZone, PortalZone, RiserZone, SkyZone, StamperZone, Zone } from '../sim/zones';
 import { Confetti, Fx } from './fx';
 
 /** Free-fall speed (m/s): a marble going faster than this has just hit a boost pad and gets a nitro flame. */
 const CRUISE = 3;
-import { BG, BG_BAND, BLACKHOLE, BOOST, FAN, HAZARD, HELP, HURT, LIFT, PORTAL_BACK, PORTAL_FWD, SKY, STEEL, STYLE } from './palette';
+import { BG, BG_BAND, BLACKHOLE, BOOST, FAN, HAZARD, HELP, HURT, LIFT, MINE, MINE_HOT, PORTAL_BACK, PORTAL_FWD, SKY, STEEL, STYLE } from './palette';
 
 interface MarbleView {
   m: Marble;
@@ -448,6 +448,11 @@ export class Renderer {
       case 'boost':
         this.fx.burst(e.x, e.y, BOOST, 12, 5, 0.07, 0);
         break;
+      case 'blast':
+        this.fx.burst(e.x, e.y, MINE_HOT, 16, 9, 0.09, 3);
+        this.fx.burst(e.x, e.y, MINE, 10, 6, 0.12, 1);
+        if (this.isVisible(e.y)) this.addShake(0.04);
+        break;
       case 'stamp':
         this.fx.burst(e.x, e.y, STEEL, 8, 3, 0.06, 2);
         this.addShake(0.08);
@@ -732,6 +737,8 @@ export class Renderer {
         return this.drawSky(g, zv.z, (zv.anim += dt));
       case 'riser':
         return this.drawRiser(g, zv.z, (zv.anim += dt));
+      case 'blast':
+        return this.drawBlasts(g, zv.z);
     }
   }
 
@@ -755,6 +762,60 @@ export class Renderer {
       if (y2 - y1 < 0.1) continue;
       const near = frac(i * 0.511);
       g.moveTo(px, y1).lineTo(px, y2).stroke({ width: 0.03 + near * 0.04, color: SKY, alpha: 0.1 + near * 0.22, cap: 'round' });
+    }
+  }
+
+  /**
+   * The mine pegs and their blasts. A ready mine looks like any other peg. A lit one swells and glows hot,
+   * blinking faster and faster, inside a faint disc showing how far its blast reaches. When it blows: a white
+   * flash and the shockwave's ring, and the peg is gone, leaving a dim socket whose ring fills up until it
+   * comes back (then it fades in). Drawn scaled up by S, like the black hole, so the circles stay round.
+   */
+  private drawBlasts(g: Graphics, z: BlastZone) {
+    const S = 40;
+    g.scale.set(1 / S);
+    const peg = STYLE.peg;
+    for (const b of z.blasts) {
+      const x = b.x * S;
+      const y = b.y * S;
+      const r = b.r * S;
+      if (b.age < z.fuse) {
+        const k = b.age / z.fuse;
+        const fade = Math.min(1, b.age / 0.15);
+        g.circle(x, y, r).fill({ color: MINE, alpha: (0.03 + 0.07 * k) * fade }).stroke({ width: 0.04 * S, color: MINE, alpha: (0.12 + 0.5 * k) * fade });
+        g.circle(x, y, r * k * k).fill({ color: MINE, alpha: 0.18 * k });
+      } else {
+        const k = Math.min(1, (b.age - z.fuse) / 0.5);
+        const front = r * Math.min(1, (b.age - z.fuse) / z.wave);
+        g.circle(x, y, front).fill({ color: 0xfff1c9, alpha: 0.5 * (1 - k) ** 2 });
+        g.circle(x, y, front).stroke({ width: 0.14 * S * (1 - k), color: MINE_HOT, alpha: 1 - k });
+      }
+    }
+    for (const m of z.mines) {
+      const x = m.x * S;
+      const y = m.y * S;
+      const pr = m.r * S;
+      const dt = z.time - m.since;
+      if (m.state === 'gone') {
+        // An empty socket, with a ring that fills up clockwise until the peg comes back.
+        const k = Math.min(1, dt / z.down);
+        g.circle(x, y, pr).fill({ color: 0x000000, alpha: 0.35 }).stroke({ width: 0.025 * S, color: MINE, alpha: 0.35 });
+        g.moveTo(x, y - pr - 0.08 * S).arc(x, y, pr + 0.08 * S, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2).stroke({ width: 0.035 * S, color: MINE_HOT, alpha: 0.55, cap: 'round' });
+        continue;
+      }
+      if (m.state === 'lit') {
+        const k = Math.min(1, dt / z.fuse);
+        const blink = Math.sin(k * k * 45) > 0;
+        const rr = pr * (1 + 0.6 * k);
+        g.circle(x, y, rr + (0.12 + 0.2 * k) * S).fill({ color: MINE, alpha: 0.25 + 0.35 * k });
+        g.circle(x, y, rr).fill(blink ? 0xffffff : MINE_HOT);
+        continue;
+      }
+      // Ready: drawn like a static peg, fading back in after it returns.
+      const a = Math.min(1, dt / 0.3);
+      g.circle(x, y, pr + 0.1 * S).fill({ color: peg.glow, alpha: 0.16 * a });
+      g.circle(x, y, pr).fill({ color: peg.fill, alpha: a });
+      g.circle(x - pr * 0.3, y - pr * 0.3, pr * 0.35).fill({ color: 0xffffff, alpha: 0.8 * a });
     }
   }
 

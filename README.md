@@ -55,8 +55,10 @@ src/
   main.ts            app state machine (setup → race → winner), frame loop, events → audio/callouts
   sim/               headless simulation (Rapier 2D physics)
     sim.ts           Sim class: marbles, stepping, ranking, finish, rescues
-    course.ts        segment templates + seeded course generator
-    builder.ts       walls, pegs, bumpers, windmills, sliders, trapdoors, flippers, see-saws
+    course/          seeded course generator (index.ts), shared helpers, funnel guards, start mixer
+      segments/      one file per segment template
+      finishes/      one file per finish
+    builder/         Builder class (index.ts) + one file per component: walls, pegs, bumpers, windmills, flippers, zones…
     zones.ts         fans, conveyors, lifts, boosters, portals
   render/            PixiJS renderer, effects, palette
   audio/sfx.ts       Web Audio sounds, all synthesized (no audio files)

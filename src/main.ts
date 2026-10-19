@@ -392,6 +392,9 @@ async function boot() {
       case 'boost':
         if (seen(e.y)) sfx.boost(pan(e.x));
         break;
+      case 'blast':
+        if (seen(e.y)) sfx.blast(pan(e.x));
+        break;
       case 'stamp':
         if (seen(e.y)) sfx.stamp(pan(e.x));
         break;

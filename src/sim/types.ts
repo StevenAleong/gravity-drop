@@ -61,6 +61,10 @@ export type SimEvent =
   | { type: 'portal'; marble: number; forward: boolean; hole?: boolean; fromX: number; fromY: number; x: number; y: number }
   | { type: 'lift'; marble: number; x: number; y: number }
   | { type: 'boost'; marble: number; x: number; y: number }
+  /** A BlastZone explosion went off at (x, y), reaching out to `r`. */
+  | { type: 'blast'; x: number; y: number; r: number }
+  /** A blast's shockwave threw a marble in the direction (dx, dy). */
+  | { type: 'blasted'; marble: number; x: number; y: number; dx: number; dy: number }
   | { type: 'flip'; x: number; y: number }
   | { type: 'trapdoor'; x: number; y: number }
   | { type: 'stamp'; x: number; y: number }

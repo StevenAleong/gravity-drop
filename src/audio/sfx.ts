@@ -165,6 +165,14 @@ export class Sfx {
     this.tone('sawtooth', 200, 900, 0.18, 0.12, pan);
   }
 
+  blast(pan: number) {
+    if (!this.allow(40)) return;
+    // A low boom with a sharp crack on top.
+    this.noise(0.3, 0.35, 160, pan, 0.7);
+    this.noise(0.05, 0.18, 1800, pan, 1);
+    this.tone('sine', 120, 38, 0.28, 0.22, pan);
+  }
+
   flip(pan: number) {
     if (!this.allow(40)) return;
     this.noise(0.08, 0.25, 900, pan, 2);

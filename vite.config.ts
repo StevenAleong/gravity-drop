@@ -1,17 +1,22 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { defineConfig } from 'vite';
 
 /**
  * A fingerprint of everything that decides how a race plays out: the `src/sim/` code and the physics
  * engine's version. History entries save it, and a race can only be replayed while it still matches.
- * Line endings are normalised so a Windows checkout and the Linux Pages build agree.
+ * Line endings and path separators are normalised so a Windows checkout and the Linux Pages build agree.
+ * It includes subfolders (the course's segments and finishes live in their own).
  */
 function simVersion() {
   const hash = createHash('sha256');
   const dir = 'src/sim';
-  for (const file of readdirSync(dir).sort()) {
+  const files = readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile())
+    .map((e) => relative(dir, join(e.parentPath, e.name)).replace(/\\/g, '/'))
+    .sort();
+  for (const file of files) {
     hash.update(file + '\0' + readFileSync(join(dir, file), 'utf8').replace(/\r\n/g, '\n') + '\0');
   }
   const rapier = 'node_modules/@dimforge/rapier2d-compat/package.json';

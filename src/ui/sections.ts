@@ -32,6 +32,8 @@ const ABOUT: Record<string, string> = {
     'A foosball table: eight rods of black and yellow players that slide from wall to wall and kick. The feet bat marbles sideways, and while a rod is away from a wall, a lucky marble can slip straight down the side. At the bottom, everyone is funnelled into the goal.',
   'segment:blackhole':
     'A huge black hole over a round bowl, where normal gravity fades away. Marbles orbit the hole whichever way they came in, crashing into each other as they spiral down. Reach the inner ring and you get sucked in. The inner ring starts small, and once the hole swallows its first marble it keeps growing, so the first ones in can circle for ages while the ones behind get pulled straight through.',
+  'segment:mines':
+    'A peg field where the pegs are mines. Every so often a peg lights up and glows, then blows up: its blast throws every marble in reach straight away from it, up, down or sideways depending on which side you were, and the peg is gone for a few seconds, leaving a hole in the field. One blast can send the leader flying back up, the next can fire a straggler down past the pack.',
   'finish:funnel':
     'A funnel with slingshots on its walls and a flipper at the bottom of each one, down to the finish line.',
   'finish:halfpipe':
